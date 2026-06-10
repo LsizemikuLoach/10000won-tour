@@ -1,0 +1,434 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
+import pandas as pd
+import numpy as np
+import math
+import requests
+import os
+import traceback
+import random
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def safe_read_csv(file_name):
+    path_in_data = os.path.join("data", file_name)
+    target_path = path_in_data if os.path.exists(path_in_data) else file_name
+    if not os.path.exists(target_path): return pd.DataFrame()
+    for enc in ['utf-8', 'cp949', 'euc-kr', 'utf-8-sig']:
+        try: return pd.read_csv(target_path, encoding=enc)
+        except Exception: continue
+    try:
+        with open(target_path, 'r', encoding='cp949', errors='replace') as f: return pd.read_csv(f)
+    except Exception: return pd.DataFrame()
+
+def get_distance_km(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    a = math.sin((lat2-lat1)/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2-lon1)/2)**2
+    a = max(0.0, min(1.0, a))
+    return 2 * math.asin(math.sqrt(a)) * 6371.0
+
+def get_distance_km_vectorized(lat1, lon1, lat2_series, lon2_series):
+    lat1, lon1 = math.radians(lat1), math.radians(lon1)
+    lat2, lon2 = np.radians(lat2_series), np.radians(lon2_series)
+    dlon, dlat = lon2 - lon1, lat2 - lat1
+    a = np.sin(dlat/2)**2 + math.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    a = np.clip(a, 0.0, 1.0)
+    return 6371.0 * (2 * np.arcsin(np.sqrt(a)))
+
+def estimate_noppo_price(name):
+    name_str = str(name).replace(" ", "")
+    if any(k in name_str for k in ['고기', '갈비', '삼겹', '막창', '곱창', '정육', '회', '수산', '해물', '참치', '초밥']): return 16000
+    if any(k in name_str for k in ['막국수', '냉면', '밀면', '콩국수']): return 8000
+    if any(k in name_str for k in ['짜장', '짬뽕', '중화', '중식', '국수', '우동', '소바', '칼국수']): return 4500
+    if any(k in name_str for k in ['김밥', '만두', '분식', '떡볶이', '돈까스']): return 4000
+    if any(k in name_str for k in ['국밥', '해장국', '탕', '찌개', '설렁탕', '육개장']): return 6000
+    return 9000
+
+def auto_parse_df(df, name_keywords, default_price, category):
+    if df.empty: return pd.DataFrame()
+    cols = df.columns
+    
+    lat_col = None
+    lon_col = None
+    fake_geo_keywords = ['route', 'no', '노선', '번호', '코드', 'id', '상태', '구분', '형태']
+    
+    for c in cols:
+        c_clean = str(c).lower().replace(" ", "").replace("_", "")
+        if any(fk in c_clean for fk in fake_geo_keywords): continue
+        if any(k in c_clean for k in ['위도', 'lat', 'y좌표', 'fcltyla']) or c_clean == 'y':
+            if lat_col is None: lat_col = c
+        if any(k in c_clean for k in ['경도', 'lon', 'lng', 'lng', 'x좌표', 'fcltylo']) or c_clean == 'x':
+            if lon_col is None: lon_col = c
+
+    n_col = None
+    fake_name_keywords = ['주소', 'adr', '상태', 'state', '코드', 'code', '번호', 'no', 'id', 'route', '노선', '구분', '유형', '카테고리']
+    
+    for k in name_keywords:
+        for c in cols:
+            if c == lat_col or c == lon_col: continue
+            if pd.api.types.is_numeric_dtype(df[c]): continue 
+            
+            c_clean = str(c).lower().replace(" ", "").replace("_", "")
+            if any(fk in c_clean for fk in fake_name_keywords): continue 
+            
+            if k.lower() in c_clean:
+                n_col = c; break
+        if n_col: break
+        
+    if not n_col:
+        best_col = None
+        max_unique = 0
+        for c in cols:
+            if c == lat_col or c == lon_col: continue
+            if pd.api.types.is_numeric_dtype(df[c]): continue
+            
+            c_clean = str(c).lower().replace(" ", "").replace("_", "")
+            if any(fk in c_clean for fk in fake_name_keywords): continue
+            
+            num_unique = df[c].nunique()
+            if num_unique > max_unique:
+                max_unique = num_unique
+                best_col = c
+        n_col = best_col if best_col else cols[0]
+        
+    if lat_col and lon_col and n_col:
+        parsed = pd.DataFrame()
+        parsed['name'] = df[n_col].astype(str)
+        if category == '지하철역':
+            parsed['name'] = parsed['name'].apply(lambda x: x + '역' if not str(x).endswith('역') else x)
+        parsed['lat'] = pd.to_numeric(df[lat_col], errors='coerce')
+        parsed['lon'] = pd.to_numeric(df[lon_col], errors='coerce')
+        parsed['category'] = category
+        parsed['price'] = default_price
+        
+        parsed = parsed.dropna(subset=['lat', 'lon', 'name'])
+        parsed = parsed[(parsed['lat'] > 33) & (parsed['lat'] < 39) & (parsed['lon'] > 124) & (parsed['lon'] < 132)]
+        return parsed.drop_duplicates(subset=['name', 'lat', 'lon']) 
+    return pd.DataFrame()
+
+print("\n===========================================")
+print("=== 만원 한 바퀴 데이터 로드 시스템 구동 ===")
+print("===========================================")
+
+noppo_df = safe_read_csv("noppo_coords.csv")
+good_price_df = safe_read_csv("good_price_coords.csv")
+food_list = []
+if not noppo_df.empty:
+    t_df = auto_parse_df(noppo_df, ['상호', '업소', '명칭', '이름', '가게', '점포', 'fclty_nm'], 0, '식당')
+    if not t_df.empty:
+        t_df['price'] = t_df['name'].apply(estimate_noppo_price)
+        food_list.append(t_df)
+if not good_price_df.empty:
+    n_df = auto_parse_df(good_price_df, ['상호', '업소', '명칭', '이름', '가게', '점포'], 0, '식당')
+    if not n_df.empty:
+        n_df['price'] = n_df['name'].apply(estimate_noppo_price)
+        food_list.append(n_df)
+restaurant_df = pd.concat(food_list, ignore_index=True).drop_duplicates(subset=['name', 'lat', 'lon']) if food_list else pd.DataFrame()
+
+raw_cafe_df = safe_read_csv("cafe_coords.csv") if not safe_read_csv("cafe_coords.csv").empty else safe_read_csv("cafe.csv")
+cafe_final_df = auto_parse_df(raw_cafe_df, ['상호', '사업장', '업소', '명칭', '이름', 'cafe_nm'], 3500, '카페')
+
+park_final_df = auto_parse_df(safe_read_csv("park.csv"), ['공원', '명칭', '이름', 'park_nm'], 0, '공원')
+
+center_df = safe_read_csv("center.csv")
+if center_df.empty: center_df = safe_read_csv("subway.csv")
+center_final_df = auto_parse_df(center_df, ['시설', '문화', '체육', '명칭', '이름', 'TRRSRT_NM'], 0, '문화시설')
+
+subway_df = safe_read_csv("seoul_subway.csv")
+subway_final_df = auto_parse_df(subway_df, ['역이름', '역명', '역 이름', '지하철역', '이름'], 0, '지하철역')
+
+tourist_df = safe_read_csv("tourist.csv")
+if tourist_df.empty:
+    tourist_final_df = pd.DataFrame([
+        {"name": "숭례문(남대문)", "lat": 37.5599, "lon": 126.9753, "category": "명소", "price": 0},
+        {"name": "덕수궁", "lat": 37.5658, "lon": 126.9751, "category": "명소", "price": 0}
+    ])
+else:
+    tourist_final_df = auto_parse_df(tourist_df, ['명소', '관광', '명칭', '이름'], 0, '명소')
+
+print("데이터 로딩 완료.")
+print("===========================================\n")
+
+@app.get("/logo.png")
+def serve_logo():
+    if os.path.exists("logo.png"): return FileResponse("logo.png")
+    return HTMLResponse(status_code=404)
+
+@app.get("/")
+def serve_html():
+    if os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-store, no-cache"})
+    return HTMLResponse(content="<h1>에러: index.html 파일을 찾을 수 없습니다.</h1>")
+
+BACKUP_STATIONS = {
+    '가락시장역': (37.4925, 127.1181), '가산디지털단지역': (37.4810, 126.8826), '강남역': (37.4979, 127.0276),
+    '건대입구역': (37.5404, 127.0692), '고속터미널역': (37.5049, 127.0049), '공덕역': (37.5432, 126.9516),
+    '광화문역': (37.5710, 126.9765), '교대역': (37.4934, 127.0143), '노량진역': (37.5142, 126.9424),
+    '수유역': (37.6380, 127.0257), '신도림역': (37.5088, 126.8912), '신촌역': (37.5552, 126.9369),
+    '여의도역': (37.5216, 126.9242), '용산역': (37.5298, 126.9648), '잠실역': (37.5133, 127.1001),
+    '홍대입구역': (37.5567, 126.9235), '구파발역': (37.6367, 126.9188), '마장역': (37.5661, 127.0429)
+}
+
+WEATHER_ZONES = {
+    '강남역': (37.4979, 127.0276, '강남역'), '홍대 관광특구': (37.5567, 126.9235, '홍대 관광특구'),
+    '신촌·이대역': (37.5552, 126.9369, '신촌·이대역'), '명동 관광특구': (37.5609, 126.9863, '명동 관광특구'),
+    '건대입구역': (37.5404, 127.0692, '건대입구역'), '잠실 관광특구': (37.5133, 127.1001, '잠실 관광특구'),
+    '여의도': (37.5216, 126.9242, '여의도'), '용산역': (37.5298, 126.9648, '용산역'),
+    '혜화동 대학로': (37.5822, 127.0018, '혜화동 대학로'), '왕십리역': (37.5612, 127.0382, '왕십리역'),
+    '신도림역': (37.5088, 126.8912, '신도림역'), '종로·청계 관광특구': (37.5694, 126.9861, '종로·청계 관광특구'),
+    '성수카페거리': (37.5434, 127.0543, '성수카페거리'), '이태원 관광특구': (37.5345, 126.9941, '이태원 관광특구'),
+    '가로수길': (37.5203, 127.0227, '가로수길'), '압구정로데오거리': (37.5274, 127.0404, '압구정로데오거리'),
+    '수유리 먹자골목': (37.6380, 127.0257, '수유리 먹자골목')
+}
+
+@app.get("/api/hotspots")
+def get_hotspots():
+    if not subway_final_df.empty:
+        sorted_df = subway_final_df.sort_values('name')
+        return [{"name": f"{row['name']}", "lat": row['lat'], "lon": row['lon']} for _, row in sorted_df.iterrows()]
+    else:
+        return [{"name": name, "lat": lat, "lon": lon} for name, (lat, lon) in BACKUP_STATIONS.items()]
+
+@app.get("/api/weather")
+def get_weather(station: str):
+    target_zone = '종로·청계 관광특구'
+    s_lat, s_lon = 37.5704, 126.9922
+    
+    matched_station = subway_final_df[subway_final_df['name'] == station]
+    if not matched_station.empty:
+        s_lat = float(matched_station.iloc[0]['lat'])
+        s_lon = float(matched_station.iloc[0]['lon'])
+    elif station in BACKUP_STATIONS:
+        s_lat, s_lon = BACKUP_STATIONS[station]
+        
+    min_dist = 9999
+    for z_name, (z_lat, z_lon, api_key) in WEATHER_ZONES.items():
+        dist = get_distance_km(s_lat, s_lon, z_lat, z_lon)
+        if dist < min_dist:
+            min_dist = dist
+            target_zone = api_key
+
+    try:
+        res = requests.get(f"http://openapi.seoul.go.kr:8088/5067595245766f6938336d4a525772/json/citydata/1/1/{target_zone}", timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            if "CITYDATA" in data:
+                city_data = data["CITYDATA"]
+                w_info = city_data.get("WEATHER_STTS", [{}])[0]
+                
+                pcp_msg = w_info.get("PCP_MSG", "")
+                if pcp_msg in ["", "없음", "강수없음"]:
+                    curr_cond = w_info.get("SKY_STTS", "맑음")
+                else:
+                    curr_cond = pcp_msg
+                
+                # 💡 [추가] 실제 기상청 관측/업데이트 시간 데이터 추출
+                weather_time = w_info.get("WEATHER_TIME", "")
+                
+                return {
+                    "success": True, 
+                    "zone": station, 
+                    "api_zone": target_zone,
+                    "update_time": weather_time,
+                    "temp": str(w_info.get("TEMP", "-")).replace("℃", ""), 
+                    "condition": curr_cond,
+                    "pm10": w_info.get("PM10_STTS", "보통"), 
+                    "pm25": w_info.get("PM25_STTS", "보통"), 
+                    "msg": w_info.get("WEATHER_MSG", "기상 분석 완료."), 
+                    "forecast": city_data.get("WEATHER_FCST", [])[:12]
+                }
+    except Exception as e: pass
+    return {"success": False, "reason": "서버 통신 대기 중"}
+
+@app.get("/api/pois")
+def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: str, use_parks: str, use_centers: str, use_tourists: str):
+    results = []
+    def filter_and_add(df, color):
+        if df is None or df.empty: return
+        df_copy = df.copy()
+        df_copy['dist'] = get_distance_km_vectorized(lat, lon, df_copy['lat'], df_copy['lon'])
+        filtered = df_copy[df_copy['dist'] <= radius]
+        
+        if not filtered.empty and filtered.iloc[0]['category'] == '카페':
+            filtered = filtered.sort_values('dist')
+            thinned = []
+            for _, row in filtered.iterrows():
+                if not any(get_distance_km(row['lat'], row['lon'], acc['lat'], acc['lon']) < 0.18 for acc in thinned): thinned.append(row)
+            filtered = pd.DataFrame(thinned) if thinned else pd.DataFrame(columns=df.columns)
+
+        for _, row in filtered.iterrows():
+            cat = str(row['category'])
+            p_val = int(row['price'])
+            p_str = f"{p_val:,}원"
+            if cat in ['문화시설', '명소', '지하철역']: p_str = "변동(+@)"
+            elif cat == '공원': p_str = "무료"
+            results.append({"name": str(row['name']).replace('"', ''), "lat": float(row['lat']), "lon": float(row['lon']), "category": cat, "price": p_val, "price_str": p_str, "color": str(color)})
+
+    try:
+        if use_rests == 'true': filter_and_add(restaurant_df, "#FF8C00")
+        if use_cafes == 'true': filter_and_add(cafe_final_df, "#8B4513")
+        if use_parks == 'true': filter_and_add(park_final_df, "#2E8B57")
+        if use_centers == 'true': filter_and_add(center_final_df, "#00CED1") 
+        if use_tourists == 'true': filter_and_add(tourist_final_df, "#FF1493")
+        return {"success": True, "data": results}
+    except Exception as e:
+        return {"success": False, "reason": str(e)}
+
+class RouteRequest(BaseModel):
+    station: str
+    station_lat: float
+    station_lon: float
+    start_name: str
+    start_lat: float
+    start_lon: float
+    budget: int
+    radius: float
+    pref: str
+    use_rests: bool = True
+    use_cafes: bool = True
+    use_parks: bool = True
+    use_centers: bool = True
+    use_tourists: bool = True
+
+@app.post("/api/route")
+def calculate_route(req: RouteRequest):
+    try:
+        def get_filtered(df):
+            if df is None or df.empty: return pd.DataFrame()
+            d = df.copy()
+            d['dist'] = get_distance_km_vectorized(req.start_lat, req.start_lon, d['lat'], d['lon'])
+            return d[d['dist'] <= req.radius]
+
+        r_df = get_filtered(restaurant_df) if req.use_rests else pd.DataFrame()
+        c_df = get_filtered(cafe_final_df) if req.use_cafes else pd.DataFrame()
+        p_df = get_filtered(park_final_df) if req.use_parks else pd.DataFrame()
+        ct_df = get_filtered(center_final_df) if req.use_centers else pd.DataFrame() 
+        t_df = get_filtered(tourist_final_df) if req.use_tourists else pd.DataFrame()
+
+        sel_r, sel_c = None, None
+        if not r_df.empty and not c_df.empty:
+            valid_pairs = []
+            
+            if req.pref == "랜덤으로 추천받기":
+                sub_r = r_df.sample(frac=1) 
+                sub_c = c_df.sample(frac=1)
+            elif req.pref == "먼 코스 (도보 탐방)":
+                sub_r = r_df.nlargest(30, 'dist')
+                sub_c = c_df.nlargest(30, 'dist')
+            else: 
+                sub_r = r_df.nsmallest(30, 'dist')
+                sub_c = c_df.nsmallest(30, 'dist')
+            
+            for _, r_row in sub_r.iterrows():
+                for _, c_row in sub_c.iterrows():
+                    if int(r_row['price']) + int(c_row['price']) <= req.budget:
+                        valid_pairs.append((float(r_row['dist']) + float(c_row['dist']), r_row, c_row))
+            
+            if valid_pairs:
+                if req.pref == "가까운 코스 우선":
+                    valid_pairs.sort(key=lambda x: x[0])
+                    _, sel_r, sel_c = valid_pairs[0]
+                elif req.pref == "먼 코스 (도보 탐방)":
+                    valid_pairs.sort(key=lambda x: x[0], reverse=True)
+                    _, sel_r, sel_c = valid_pairs[0]
+                else: 
+                    _, sel_r, sel_c = random.choice(valid_pairs)
+            else:
+                sel_r = sub_r.iloc[0] if not sub_r.empty else None
+                sel_c = sub_c.iloc[0] if not sub_c.empty else None
+        else:
+            if not r_df.empty:
+                sel_r = r_df.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else r_df.sort_values('dist').iloc[0]
+            if not c_df.empty:
+                sel_c = c_df.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else c_df.sort_values('dist').iloc[0]
+
+        def pick_item(df):
+            if df.empty: return None
+            if req.pref == "랜덤으로 추천받기": return df.sample(n=1).iloc[0]
+            df_s = df.sort_values('dist')
+            if req.pref == "가까운 코스 우선": return df_s.iloc[0]
+            else: return df_s.iloc[random.randint(0, min(5, len(df_s)-1))]
+
+        sel_t = pick_item(t_df)
+        sel_ct = pick_item(ct_df) 
+        sel_p = pick_item(p_df)
+        
+        has_plus_alpha = True if (sel_t is not None or sel_ct is not None) else False
+
+        steps_data = [{"name": req.start_name, "lat": req.start_lat, "lon": req.start_lon, "color": "#000000"}]
+        steps = [f"<b style='color:#A3A8B4;'>1.</b> 출발: {req.start_name}"]
+        total_price = 0
+        step_idx = 2
+
+        def add_step(row, color, label, price_type):
+            nonlocal step_idx, total_price
+            steps_data.append({"name": str(row['name']), "lat": float(row['lat']), "lon": float(row['lon']), "color": color})
+            if price_type == "fixed":
+                p = int(row['price'])
+                total_price += p
+                steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} ({p:,}원)")
+            elif price_type == "plus":
+                steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} (변동+@)")
+            else:
+                steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} (무료)")
+            step_idx += 1
+
+        if sel_t is not None: add_step(sel_t, "#FF1493", "명소", "plus")
+        if sel_ct is not None: add_step(sel_ct, "#00CED1", "문화시설", "plus") 
+        if sel_r is not None: add_step(sel_r, "#FF8C00", "식당", "fixed")
+        if sel_p is not None: add_step(sel_p, "#2E8B57", "공원", "free")
+        if sel_c is not None: add_step(sel_c, "#8B4513", "카페", "fixed")
+
+        steps_data.append({"name": req.station, "lat": req.station_lat, "lon": req.station_lon, "color": "#4682B4"})
+        steps.append(f"<b style='color:#4682B4;'>{step_idx}.</b> 귀가: {req.station}")
+
+        if len(steps_data) > 1: steps_data[0]["color"] = steps_data[1]["color"]
+
+        paths = []
+        total_dist_km = 0.0
+        headers = {'User-Agent': 'Manwon-Navigation-App/5.0'}
+        
+        for i in range(len(steps_data)-1):
+            p1 = steps_data[i]
+            p2 = steps_data[i+1]
+            seg_color = steps_data[i+1]["color"]
+            
+            osrm_url = f"http://router.project-osrm.org/route/v1/foot/{p1['lon']},{p1['lat']};{p2['lon']},{p2['lat']}?overview=full&geometries=geojson"
+            try:
+                res = requests.get(osrm_url, headers=headers, timeout=3)
+                if res.status_code == 200:
+                    route_data = res.json()["routes"][0]
+                    coords = [[c[1], c[0]] for c in route_data["geometry"]["coordinates"]]
+                    paths.append({"coords": coords, "color": seg_color})
+                    total_dist_km += (route_data["distance"] / 1000.0)
+                else: raise Exception("OSRM Blocked")
+            except Exception as api_e:
+                dist = get_distance_km(p1['lat'], p1['lon'], p2['lat'], p2['lon']) * 1.3
+                total_dist_km += dist
+                paths.append({"coords": [[p1['lat'], p1['lon']], [p2['lat'], p2['lon']]], "color": seg_color})
+
+        total_time_min = int((total_dist_km / 4.0) * 60)
+
+        return {
+            "success": True, 
+            "total_price": total_price, 
+            "plus_alpha": has_plus_alpha, 
+            "total_dist_km": round(total_dist_km, 2), 
+            "total_time_min": total_time_min, 
+            "steps": steps, 
+            "paths": paths
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return {"success": False, "reason": str(e)}
