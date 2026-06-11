@@ -47,6 +47,9 @@ def get_distance_km_vectorized(lat1, lon1, lat2_series, lon2_series):
 
 def estimate_noppo_price(name):
     name_str = str(name).replace(" ", "")
+    # 💡 [요청 반영] 청년밥상문간 3000원 하드코딩
+    if "청년밥상문간" in name_str: return 3000
+    
     if any(k in name_str for k in ['고기', '갈비', '삼겹', '막창', '곱창', '정육', '회', '수산', '해물', '참치', '초밥']): return 16000
     if any(k in name_str for k in ['막국수', '냉면', '밀면', '콩국수']): return 8000
     if any(k in name_str for k in ['짜장', '짬뽕', '중화', '중식', '국수', '우동', '소바', '칼국수']): return 4500
@@ -233,7 +236,6 @@ def get_weather(station: str):
                 else:
                     curr_cond = pcp_msg
                 
-                # 💡 [추가] 실제 기상청 관측/업데이트 시간 데이터 추출
                 weather_time = w_info.get("WEATHER_TIME", "")
                 
                 return {
@@ -270,9 +272,12 @@ def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: s
         for _, row in filtered.iterrows():
             cat = str(row['category'])
             p_val = int(row['price'])
-            p_str = f"{p_val:,}원"
+            
+            # 💡 [요청 반영] 마커 가격에 '약' 텍스트 추가
+            p_str = f"약 {p_val:,}원"
             if cat in ['문화시설', '명소', '지하철역']: p_str = "변동(+@)"
             elif cat == '공원': p_str = "무료"
+            
             results.append({"name": str(row['name']).replace('"', ''), "lat": float(row['lat']), "lon": float(row['lon']), "category": cat, "price": p_val, "price_str": p_str, "color": str(color)})
 
     try:
@@ -304,6 +309,11 @@ class RouteRequest(BaseModel):
 @app.post("/api/route")
 def calculate_route(req: RouteRequest):
     try:
+        is_free_course = (req.pref == "무료 코스 (0원 갓성비)")
+        
+        if is_free_course:
+            req.budget = 0
+
         def get_filtered(df):
             if df is None or df.empty: return pd.DataFrame()
             d = df.copy()
@@ -317,7 +327,8 @@ def calculate_route(req: RouteRequest):
         t_df = get_filtered(tourist_final_df) if req.use_tourists else pd.DataFrame()
 
         sel_r, sel_c = None, None
-        if not r_df.empty and not c_df.empty:
+        
+        if not r_df.empty and not c_df.empty and not is_free_course:
             valid_pairs = []
             
             if req.pref == "랜덤으로 추천받기":
@@ -345,13 +356,17 @@ def calculate_route(req: RouteRequest):
                 else: 
                     _, sel_r, sel_c = random.choice(valid_pairs)
             else:
-                sel_r = sub_r.iloc[0] if not sub_r.empty else None
-                sel_c = sub_c.iloc[0] if not sub_c.empty else None
+                sel_r = None
+                sel_c = None
         else:
-            if not r_df.empty:
-                sel_r = r_df.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else r_df.sort_values('dist').iloc[0]
-            if not c_df.empty:
-                sel_c = c_df.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else c_df.sort_values('dist').iloc[0]
+            if not r_df.empty and not is_free_course:
+                r_valid = r_df[r_df['price'] <= req.budget]
+                if not r_valid.empty:
+                    sel_r = r_valid.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else r_valid.sort_values('dist').iloc[0]
+            if not c_df.empty and not is_free_course:
+                c_valid = c_df[c_df['price'] <= req.budget]
+                if not c_valid.empty:
+                    sel_c = c_valid.sample(n=1).iloc[0] if req.pref == "랜덤으로 추천받기" else c_valid.sort_values('dist').iloc[0]
 
         def pick_item(df):
             if df.empty: return None
@@ -360,8 +375,15 @@ def calculate_route(req: RouteRequest):
             if req.pref == "가까운 코스 우선": return df_s.iloc[0]
             else: return df_s.iloc[random.randint(0, min(5, len(df_s)-1))]
 
+        # 💡 [요청 반영] 무료 코스 시 명소(거리) 최우선 매칭, 없으면 문화시설 대체
         sel_t = pick_item(t_df)
-        sel_ct = pick_item(ct_df) 
+        
+        if is_free_course:
+            # 명소가 선택되었으면 문화시설 패스, 명소가 비었을 때만 문화시설 선택
+            sel_ct = None if sel_t is not None else pick_item(ct_df)
+        else:
+            sel_ct = pick_item(ct_df) 
+            
         sel_p = pick_item(p_df)
         
         has_plus_alpha = True if (sel_t is not None or sel_ct is not None) else False
@@ -374,10 +396,12 @@ def calculate_route(req: RouteRequest):
         def add_step(row, color, label, price_type):
             nonlocal step_idx, total_price
             steps_data.append({"name": str(row['name']), "lat": float(row['lat']), "lon": float(row['lon']), "color": color})
+            
+            # 💡 [요청 반영] 코스 결과창 내역에도 '약' 추가
             if price_type == "fixed":
                 p = int(row['price'])
                 total_price += p
-                steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} ({p:,}원)")
+                steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} (약 {p:,}원)")
             elif price_type == "plus":
                 steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} (변동+@)")
             else:

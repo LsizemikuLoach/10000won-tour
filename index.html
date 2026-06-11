@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>만원 한 바퀴</title>
     
     <link rel="icon" href="/logo.png" type="image/png">
@@ -153,16 +153,14 @@
         .dust-label { font-size: 11px; font-weight: bold; color: #888; margin-bottom: 2px; }
         .dust-val { font-size: 12px; font-weight: 800; color: #fff; padding: 2px 10px; border-radius: 12px; }
 
-        /* 💡 수정: 모달 위치 고정 & transition 삭제 (가로 드래그 고무줄 버그 완벽 제거) */
         #event-modal {
             display: none; position: absolute; top: 15px; left: 635px; width: 320px;
             background: rgba(255, 255, 255, 0.98); border-radius: 12px; z-index: 1001; 
             padding: 35px 20px 20px 20px; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.3); color: #333; backdrop-filter: blur(10px);
             border: 1px solid #eee; overflow: hidden;
-        } /* <-- 닫는 괄호가 여기 있어야 합니다! */
+        }
 
-        /* 사이드바 닫힐 때 연동되는 코드는 괄호 바깥에! */
         #sidebar.closed ~ #event-modal { left: 400px; }
         
         .drag-handle-light {
@@ -216,7 +214,6 @@
         }
         .mask-toggle-btn:hover { background-color: rgba(138, 43, 226, 1); transform: scale(1.05); }
 
-                /* 내 위치 버튼 */
         .my-location-btn {
             position: absolute; bottom: 95px; right: 30px; z-index: 1000;
             background-color: rgba(255, 255, 255, 0.95); color: #444;
@@ -226,6 +223,37 @@
             font-size: 24px; transition: all 0.2s ease;
         }
         .my-location-btn:hover { background-color: #f8f9fa; color: #0054FF; transform: scale(1.05); }
+
+        /* 모바일 반응형 UI 코드 (하단에서 부드럽게 올라오는 디자인) */
+        @media (max-width: 768px) {
+            #sidebar {
+                width: 100%; height: 65%; top: auto; bottom: 0;
+                transform: translateY(100%); border-right: none; border-top: 2px solid #8A2BE2;
+                border-radius: 20px 20px 0 0; z-index: 2000;
+            }
+            #sidebar.closed { transform: translateY(100%); }
+            #sidebar:not(.closed) { transform: translateY(0); }
+            
+            #toggle-btn {
+                top: -30px; right: 20px; width: 60px; height: 30px; border-radius: 8px 8px 0 0;
+                border: 1px solid #232734; border-bottom: none; transform: none; display: flex; justify-content: center; align-items: center;
+            }
+            
+            #top-widgets { flex-direction: column; top: 10px; left: 10px; }
+            #sidebar.closed ~ #top-widgets { left: 10px; }
+            
+            .weather-widget { padding: 8px 12px; }
+            .w-temp { font-size: 18px; }
+            
+            #route-panel {
+                width: 90%; left: 5%; right: 5%; top: auto; bottom: 5%; padding: 25px 15px 15px; z-index: 2100;
+            }
+            #event-modal { width: 90%; left: 5%; top: 10%; z-index: 2100; }
+            #sidebar.closed ~ #event-modal { left: 5%; }
+
+            .mask-toggle-btn { bottom: 80px; right: 15px; width: 45px; height: 45px; font-size: 18px; }
+            .my-location-btn { bottom: 135px; right: 15px; width: 45px; height: 45px; font-size: 18px; }
+        }
 
     </style>
 </head>
@@ -270,14 +298,15 @@
                 <option value="가까운 코스 우선">가까운 코스 우선</option>
                 <option value="먼 코스 (도보 탐방)">먼 코스 (도보 탐방)</option>
                 <option value="랜덤으로 추천받기">랜덤으로 추천받기</option>
-                <option value="내 위치에서 추천">내 위치에서 추천받기</option> </select>
+                <option value="내 위치에서 추천">내 위치에서 추천받기</option> 
+                <option value="무료 코스 (0원 갓성비)">무료 코스 (0원 갓성비)</option>
             </select>
             
             <span class="section-title">5. 예산 및 도보 설정</span>
             <span style="font-size: 13px; color: #E2E4E9;">최대 소비 예산 (원)</span>
-            <input type="range" id="budgetRange" class="custom-slider" min="4000" max="16000" value="12000" step="500" 
-                   oninput="document.getElementById('budgetVal').innerText = this.value + '원'">
-            <div class="slider-value" id="budgetVal">12000원</div>
+            <input type="range" id="budgetRange" class="custom-slider" min="10000" max="19000" value="10000" step="500" 
+                   oninput="document.getElementById('budgetVal').innerText = parseInt(this.value).toLocaleString() + '원'">
+            <div class="slider-value" id="budgetVal">10,000원</div>
             
             <span style="font-size: 13px; color: #E2E4E9;">도보 탐색 반경 (km)</span>
             <input type="range" id="radiusRange" class="custom-slider" min="0.5" max="2.0" value="1.2" step="0.1" 
@@ -458,7 +487,12 @@
             const sidebar = document.getElementById('sidebar');
             const btn = document.getElementById('toggle-btn');
             sidebar.classList.toggle('closed');
-            btn.innerText = sidebar.classList.contains('closed') ? '▶' : '◀';
+            
+            if (window.innerWidth <= 768) {
+                btn.innerText = sidebar.classList.contains('closed') ? '▲' : '▼';
+            } else {
+                btn.innerText = sidebar.classList.contains('closed') ? '▶' : '◀';
+            }
         }
 
         function toggleEventModal() {
@@ -489,8 +523,6 @@
                 e.preventDefault(); 
                 
                 document.body.classList.add('no-select'); 
-                
-                // 💡 애니메이션 족쇄가 있었다면 대비해서 직접 해제(안정성 강화)
                 modal.style.transition = 'none';
 
                 const rect = modal.getBoundingClientRect();
@@ -618,12 +650,21 @@
 
         function updateRedMarker() {
             const stVal = document.getElementById('stationInput').value;
-            const targetStation = globalStations.find(s => s.name === stVal);
-            if(!targetStation) return;
+            let targetName = "";
+            let targetLat = 0;
+            let targetLon = 0;
 
-            let targetName = targetStation.name;
-            let targetLat = targetStation.lat;
-            let targetLon = targetStation.lon;
+            if (stVal === "현재 내 위치" && myLocationMarker) {
+                targetName = "현재 내 위치 (GPS)";
+                targetLat = myLocationMarker.getLatLng().lat;
+                targetLon = myLocationMarker.getLatLng().lng;
+            } else {
+                const targetStation = globalStations.find(s => s.name === stVal);
+                if(!targetStation) return;
+                targetName = targetStation.name;
+                targetLat = targetStation.lat;
+                targetLon = targetStation.lon;
+            }
 
             const spVal = document.getElementById('startPointInput').value;
             if(spVal && spVal !== "역에서 출발") {
@@ -732,11 +773,24 @@
             } catch (error) {}
         }
 
-        async function updateMapData(targetStation = null) {
-            if(!targetStation) {
+        async function updateMapData(customTarget = null) {
+            let targetLat = 0;
+            let targetLon = 0;
+
+            if(!customTarget) {
                 const val = document.getElementById('stationInput').value;
-                targetStation = globalStations.find(s => s.name === val);
-                if(!targetStation) return;
+                if (val === "현재 내 위치" && myLocationMarker) {
+                    targetLat = myLocationMarker.getLatLng().lat;
+                    targetLon = myLocationMarker.getLatLng().lng;
+                } else {
+                    const targetStation = globalStations.find(s => s.name === val);
+                    if(!targetStation) return;
+                    targetLat = targetStation.lat;
+                    targetLon = targetStation.lon;
+                }
+            } else {
+                targetLat = customTarget.lat;
+                targetLon = customTarget.lon;
             }
 
             const radius = document.getElementById('radiusRange').value;
@@ -749,7 +803,7 @@
             };
 
             try {
-                const response = await fetch(`/api/pois?lat=${targetStation.lat}&lon=${targetStation.lon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}&use_tourists=${checks.tourists}`);
+                const response = await fetch(`/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}&use_tourists=${checks.tourists}`);
                 const data = await response.json();
                 
                 if(data.success) {
@@ -761,8 +815,17 @@
                     setupCustomSelect('startPointInput', 'startPointList', currentPois, updateRedMarker);
 
                     currentPois.forEach((poi) => {
-                        L.circleMarker([poi.lat, poi.lon], { radius: 5, fillColor: poi.color, color: "#fff", weight: 1.2, fillOpacity: 0.85 })
-                        .bindTooltip(`<b>${poi.name}</b><br>${poi.category} (${poi.price_str})`).addTo(poiLayer);
+                        const marker = L.circleMarker([poi.lat, poi.lon], { radius: 5, fillColor: poi.color, color: "#fff", weight: 1.2, fillOpacity: 0.85 })
+                        .bindTooltip(`<b>${poi.name}</b><br>${poi.category} (${poi.price_str})`);
+                        
+                        // 💡 [새 기능] 지도 위의 동그라미 마커를 클릭하면 자동으로 출발 세부 장소로 설정!
+                        marker.on('click', () => {
+                            document.getElementById('startPointInput').value = `${poi.category}: ${poi.name}`;
+                            document.getElementById('startClear').style.display = 'block';
+                            updateRedMarker(); // 마커 클릭 시 즉시 빨간 출발지 핀도 이동시킴
+                        });
+
+                        marker.addTo(poiLayer);
                     });
                     updateRedMarker();
                 }
@@ -771,8 +834,13 @@
 
         function highlightRoute(stepIdx) {
             if(!window.routePolylines) return;
+            
+            // 💡 [버그 픽스] 사용자가 2번 장소에 마우스를 올렸을 때(stepIdx=1), 
+            // 그 장소로 '도착하는' 이전 경로(index=0)가 불이 들어오게 인덱스를 -1 당겨서 엇갈림 방지
+            let targetPath = stepIdx > 0 ? stepIdx - 1 : 0;
+
             window.routePolylines.forEach((pl, i) => {
-                if (i === stepIdx) {
+                if (i === targetPath) {
                     pl.setStyle({ opacity: 1.0, weight: 8 });
                 } else {
                     pl.setStyle({ opacity: 0.15, weight: 4 }); 
@@ -787,108 +855,6 @@
             });
         }
 
-        async function generateRoute() {
-            const btn = document.querySelector('.btn-primary');
-            const originalText = btn.innerText;
-            btn.innerText = "경로 계산 중...";
-            btn.disabled = true;
-
-            try {
-                const stVal = document.getElementById('stationInput').value;
-                const targetStation = globalStations.find(s => s.name === stVal);
-                if(!targetStation) return alert("올바른 기준 지하철역을 선택해주세요.");
-
-                let startName = targetStation.name; 
-                let startLat = targetStation.lat; 
-                let startLon = targetStation.lon;
-
-                const spVal = document.getElementById('startPointInput').value;
-                if(spVal && spVal !== "역에서 출발") {
-                    const parts = spVal.split(': ');
-                    const poiName = parts.length > 1 ? parts[1] : spVal;
-                    const selectedPoi = currentPois.find(p => p.name === poiName);
-                    if(selectedPoi) {
-                        startName = selectedPoi.name; 
-                        startLat = selectedPoi.lat; 
-                        startLon = selectedPoi.lon;
-                    }
-                }
-
-                const requestData = {
-                    station: targetStation.name, 
-                    station_lat: targetStation.lat, 
-                    station_lon: targetStation.lon,
-                    start_name: startName, 
-                    start_lat: startLat, 
-                    start_lon: startLon,
-                    budget: parseInt(document.getElementById('budgetRange').value),
-                    radius: parseFloat(document.getElementById('radiusRange').value),
-                    pref: document.getElementById('prefSelect').value,
-                    use_rests: document.getElementById('chk-rest').checked,
-                    use_cafes: document.getElementById('chk-cafe').checked,
-                    use_parks: document.getElementById('chk-park').checked,
-                    use_centers: document.getElementById('chk-center').checked,
-                    use_tourists: document.getElementById('chk-tour').checked
-                };
-
-                const response = await fetch(`/api/route`, { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify(requestData) 
-                });
-                
-                const data = await response.json();
-                
-                if(data.success) {
-                    let priceDisplay = data.total_price.toLocaleString() + ' 원';
-                    if (data.plus_alpha) {
-                        priceDisplay += `<span class="plus-alpha">(+@)</span>`;
-                    }
-                    document.getElementById('r-price').innerHTML = priceDisplay;
-                    document.getElementById('r-dist').innerText = data.total_dist_km + ' km';
-                    document.getElementById('r-time').innerText = data.total_time_min + ' 분';
-                    
-                    let stepsHtml = "";
-                    data.steps.forEach((step, idx) => { 
-                        stepsHtml += `<div class="route-step-item" onmouseenter="highlightRoute(${idx})" onmouseleave="resetRoute()">${step}</div>`; 
-                    });
-                    document.getElementById('r-steps').innerHTML = stepsHtml;
-                    document.getElementById('route-panel').style.display = 'block';
-
-                    routeLayer.clearLayers();
-                    window.routePolylines = []; 
-                    
-                    if(data.paths && data.paths.length > 0) {
-                        var bounds = L.latLngBounds();
-                        data.paths.forEach(segment => {
-                            var polyline = L.polyline(segment.coords, { 
-                                color: segment.color, weight: 6, opacity: 0.85, 
-                                lineJoin: 'round', dashArray: '8, 8' 
-                            }).addTo(routeLayer);
-                            
-                            window.routePolylines.push(polyline); 
-                            bounds.extend(polyline.getBounds());
-                        });
-                        map.fitBounds(bounds, { padding: [50, 50] });
-                    }
-                } else {
-                    alert("경로 생성 실패: " + data.reason);
-                }
-            } catch (error) {
-                alert("통신 에러가 발생했습니다. 서버를 확인해주세요.");
-            } finally {
-                btn.innerText = originalText;
-                btn.disabled = false;
-            }
-        }
-
-        loadHotspots();
-
-        // 💡 위치 저장용 변수 (함수 바깥에 둬야 빨간 줄이 안 생깁니다!)
-        let myLocationMarker = null;
-        let nearbyStationMarkers = []; 
-
-        // 📏 두 위경도 사이의 거리를 km 단위로 계산해주는 공식 (하버사인)
         function getDistanceKm(lat1, lon1, lat2, lon2) {
             const R = 6371; 
             const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -899,7 +865,200 @@
             return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
         }
 
-        // 🎯 내 위치로 이동 & 2km 내 지하철역 띄우기
+        function findNearestStation(lat, lon) {
+            let nearest = globalStations[0];
+            let minDist = 9999;
+            globalStations.forEach(s => {
+                const d = getDistanceKm(lat, lon, s.lat, s.lon);
+                if(d < minDist) { minDist = d; nearest = s; }
+            });
+            return nearest;
+        }
+
+        async function generateRoute() {
+            const btn = document.querySelector('.btn-primary');
+            const originalText = btn.innerText;
+            btn.innerText = "경로 계산 중...";
+            btn.disabled = true;
+
+            const pref = document.getElementById('prefSelect').value;
+
+            // 1. GPS 추천 기능 작동
+            if (pref === "내 위치에서 추천") {
+                if (!navigator.geolocation) {
+                    alert("이 브라우저에서는 GPS를 지원하지 않습니다.");
+                    resetBtn(); return;
+                }
+                
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    
+                    // 💡 [버그 픽스] 내 위치 추천 시 지도 위의 마커(점)들도 새로 로딩하도록 추가
+                    document.getElementById('stationInput').value = "현재 내 위치";
+                    toggleClearBtn('stationInput', 'stationClear');
+                    updateMapData({ lat: lat, lon: lon });
+
+                    // 내 위치 파란 핀 찍기
+                    if (myLocationMarker) map.removeLayer(myLocationMarker);
+                    myLocationMarker = L.circleMarker([lat, lon], {
+                        radius: 8, fillColor: "#0054FF", color: "#FFFFFF", weight: 2, fillOpacity: 1.0
+                    }).bindTooltip("<b>현재 내 위치</b>", { permanent: true, direction: "top", offset: [0, -10] }).addTo(map);
+
+                    const nearest = findNearestStation(lat, lon);
+                    
+                    executeRouteApi({
+                        station: nearest.name, 
+                        station_lat: nearest.lat, 
+                        station_lon: nearest.lon,
+                        start_name: "현재 내 위치 (GPS)", 
+                        start_lat: lat, 
+                        start_lon: lon
+                    });
+                }, (err) => {
+                    alert("GPS 권한을 허용해주세요!");
+                    resetBtn();
+                }, { enableHighAccuracy: true });
+                return;
+            }
+
+            // 2. 일반 및 GPS 혼합 작동 (조준경 버튼 누른 후 코스 생성 시)
+            const stVal = document.getElementById('stationInput').value;
+            let startName, startLat, startLon;
+            let endStationName, endStationLat, endStationLon;
+
+            if (stVal === "현재 내 위치" && myLocationMarker) {
+                const lat = myLocationMarker.getLatLng().lat;
+                const lon = myLocationMarker.getLatLng().lng;
+                const nearest = findNearestStation(lat, lon);
+                
+                endStationName = nearest.name;
+                endStationLat = nearest.lat;
+                endStationLon = nearest.lon;
+                
+                startName = "현재 내 위치 (GPS)";
+                startLat = lat;
+                startLon = lon;
+            } else {
+                const targetStation = globalStations.find(s => s.name === stVal);
+                if(!targetStation) {
+                    alert("올바른 기준 지하철역을 선택해주세요.");
+                    resetBtn(); return;
+                }
+                endStationName = targetStation.name;
+                endStationLat = targetStation.lat;
+                endStationLon = targetStation.lon;
+                
+                startName = targetStation.name;
+                startLat = targetStation.lat;
+                startLon = targetStation.lon;
+            }
+
+            const spVal = document.getElementById('startPointInput').value;
+            if(spVal && spVal !== "역에서 출발") {
+                const parts = spVal.split(': ');
+                const poiName = parts.length > 1 ? parts[1] : spVal;
+                const selectedPoi = currentPois.find(p => p.name === poiName);
+                if(selectedPoi) {
+                    startName = selectedPoi.name; 
+                    startLat = selectedPoi.lat; 
+                    startLon = selectedPoi.lon;
+                }
+            }
+
+            executeRouteApi({
+                station: endStationName, 
+                station_lat: endStationLat, 
+                station_lon: endStationLon,
+                start_name: startName, 
+                start_lat: startLat, 
+                start_lon: startLon
+            });
+
+            // 3. 백엔드 통신
+            async function executeRouteApi(baseData) {
+                const requestData = {
+                    ...baseData,
+                    budget: parseInt(document.getElementById('budgetRange').value),
+                    radius: parseFloat(document.getElementById('radiusRange').value),
+                    pref: pref,
+                    use_rests: document.getElementById('chk-rest').checked,
+                    use_cafes: document.getElementById('chk-cafe').checked,
+                    use_parks: document.getElementById('chk-park').checked,
+                    use_centers: document.getElementById('chk-center').checked,
+                    use_tourists: document.getElementById('chk-tour').checked
+                };
+
+                try {
+                    const response = await fetch(`/api/route`, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify(requestData) 
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if(data.success) {
+                        let priceDisplay = '약 ' + data.total_price.toLocaleString() + ' 원';
+                        if (data.total_price === 0) {
+                            priceDisplay = "0 원 (무료)";
+                        } else if (data.plus_alpha) {
+                            priceDisplay += `<span class="plus-alpha">(+@)</span>`;
+                        }
+                        
+                        document.getElementById('r-price').innerHTML = priceDisplay;
+                        document.getElementById('r-dist').innerText = data.total_dist_km + ' km';
+                        document.getElementById('r-time').innerText = data.total_time_min + ' 분';
+                        
+                        let stepsHtml = "";
+                        data.steps.forEach((step, idx) => { 
+                            stepsHtml += `<div class="route-step-item" onmouseenter="highlightRoute(${idx})" onmouseleave="resetRoute()">${step}</div>`; 
+                        });
+                        document.getElementById('r-steps').innerHTML = stepsHtml;
+                        document.getElementById('route-panel').style.display = 'block';
+
+                        if(window.innerWidth <= 768) {
+                            const sidebar = document.getElementById('sidebar');
+                            if(!sidebar.classList.contains('closed')) toggleSidebar();
+                        }
+
+                        routeLayer.clearLayers();
+                        window.routePolylines = []; 
+                        
+                        if(data.paths && data.paths.length > 0) {
+                            var bounds = L.latLngBounds();
+                            data.paths.forEach(segment => {
+                                var polyline = L.polyline(segment.coords, { 
+                                    color: segment.color, weight: 6, opacity: 0.85, 
+                                    lineJoin: 'round', dashArray: '8, 8' 
+                                }).addTo(routeLayer);
+                                
+                                window.routePolylines.push(polyline); 
+                                bounds.extend(polyline.getBounds());
+                            });
+                            map.fitBounds(bounds, { padding: [50, 50] });
+                        }
+                    } else {
+                        alert("경로 생성 실패: " + data.reason);
+                    }
+                } catch (error) {
+                    alert("통신 에러가 발생했습니다. 서버를 확인해주세요.");
+                } finally {
+                    resetBtn();
+                }
+            }
+
+            function resetBtn() {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        loadHotspots();
+
+        let myLocationMarker = null;
+        let nearbyStationMarkers = []; 
+
         function moveToMyLocation() {
             if (!navigator.geolocation) {
                 alert("이 브라우저에서는 위치 정보(GPS)를 지원하지 않습니다.");
@@ -915,20 +1074,20 @@
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
 
-                    // 반경 2km가 한눈에 들어오도록 줌 레벨을 14로 살짝 당겨서 날아감
                     map.flyTo([lat, lon], 14, { duration: 1.5 }); 
 
-                    // 기존 마커 초기화
                     if (myLocationMarker) map.removeLayer(myLocationMarker);
                     nearbyStationMarkers.forEach(m => map.removeLayer(m));
                     nearbyStationMarkers = [];
 
-                    // 1. 내 위치 마커 찍기
                     myLocationMarker = L.circleMarker([lat, lon], {
                         radius: 8, fillColor: "#0054FF", color: "#FFFFFF", weight: 2, fillOpacity: 1.0
                     }).bindTooltip("<b>현재 내 위치</b>", { permanent: true, direction: "top", offset: [0, -10] }).addTo(map);
 
-                    // 2. 2km 이내 지하철역 찾기
+                    document.getElementById('stationInput').value = "현재 내 위치";
+                    toggleClearBtn('stationInput', 'stationClear');
+                    updateMapData({ lat: lat, lon: lon });
+
                     let foundCount = 0;
                     globalStations.forEach(station => {
                         const dist = getDistanceKm(lat, lon, station.lat, station.lon);
