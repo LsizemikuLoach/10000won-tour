@@ -47,9 +47,7 @@ def get_distance_km_vectorized(lat1, lon1, lat2_series, lon2_series):
 
 def estimate_noppo_price(name):
     name_str = str(name).replace(" ", "")
-    # 💡 [요청 반영] 청년밥상문간 3000원 하드코딩
     if "청년밥상문간" in name_str: return 3000
-    
     if any(k in name_str for k in ['고기', '갈비', '삼겹', '막창', '곱창', '정육', '회', '수산', '해물', '참치', '초밥']): return 16000
     if any(k in name_str for k in ['막국수', '냉면', '밀면', '콩국수']): return 8000
     if any(k in name_str for k in ['짜장', '짬뽕', '중화', '중식', '국수', '우동', '소바', '칼국수']): return 4500
@@ -60,11 +58,9 @@ def estimate_noppo_price(name):
 def auto_parse_df(df, name_keywords, default_price, category):
     if df.empty: return pd.DataFrame()
     cols = df.columns
-    
     lat_col = None
     lon_col = None
     fake_geo_keywords = ['route', 'no', '노선', '번호', '코드', 'id', '상태', '구분', '형태']
-    
     for c in cols:
         c_clean = str(c).lower().replace(" ", "").replace("_", "")
         if any(fk in c_clean for fk in fake_geo_keywords): continue
@@ -75,15 +71,12 @@ def auto_parse_df(df, name_keywords, default_price, category):
 
     n_col = None
     fake_name_keywords = ['주소', 'adr', '상태', 'state', '코드', 'code', '번호', 'no', 'id', 'route', '노선', '구분', '유형', '카테고리']
-    
     for k in name_keywords:
         for c in cols:
             if c == lat_col or c == lon_col: continue
             if pd.api.types.is_numeric_dtype(df[c]): continue 
-            
             c_clean = str(c).lower().replace(" ", "").replace("_", "")
             if any(fk in c_clean for fk in fake_name_keywords): continue 
-            
             if k.lower() in c_clean:
                 n_col = c; break
         if n_col: break
@@ -94,10 +87,8 @@ def auto_parse_df(df, name_keywords, default_price, category):
         for c in cols:
             if c == lat_col or c == lon_col: continue
             if pd.api.types.is_numeric_dtype(df[c]): continue
-            
             c_clean = str(c).lower().replace(" ", "").replace("_", "")
             if any(fk in c_clean for fk in fake_name_keywords): continue
-            
             num_unique = df[c].nunique()
             if num_unique > max_unique:
                 max_unique = num_unique
@@ -159,9 +150,6 @@ if tourist_df.empty:
 else:
     tourist_final_df = auto_parse_df(tourist_df, ['명소', '관광', '명칭', '이름'], 0, '명소')
 
-print("데이터 로딩 완료.")
-print("===========================================\n")
-
 @app.get("/logo.png")
 def serve_logo():
     if os.path.exists("logo.png"): return FileResponse("logo.png")
@@ -180,7 +168,11 @@ BACKUP_STATIONS = {
     '광화문역': (37.5710, 126.9765), '교대역': (37.4934, 127.0143), '노량진역': (37.5142, 126.9424),
     '수유역': (37.6380, 127.0257), '신도림역': (37.5088, 126.8912), '신촌역': (37.5552, 126.9369),
     '여의도역': (37.5216, 126.9242), '용산역': (37.5298, 126.9648), '잠실역': (37.5133, 127.1001),
-    '홍대입구역': (37.5567, 126.9235), '구파발역': (37.6367, 126.9188), '마장역': (37.5661, 127.0429)
+    '홍대입구역': (37.5567, 126.9235), '구파발역': (37.6367, 126.9188), '마장역': (37.5661, 127.0429),
+    '아차산역': (37.5516, 127.0897), '노원역': (37.6562, 127.0628),
+    '어린이대공원역': (37.5478, 127.0744), '강일역': (37.5574, 127.1759), 
+    '한성백제역': (37.5169, 127.1162), '중앙보훈병원역': (37.5296, 127.1489), 
+    '송파나루역': (37.5103, 127.1122)
 }
 
 WEATHER_ZONES = {
@@ -206,24 +198,31 @@ def get_hotspots():
 @app.get("/api/weather")
 def get_weather(station: str):
     target_zone = '종로·청계 관광특구'
-    s_lat, s_lon = 37.5704, 126.9922
+    s_lat, s_lon = 37.5704, 126.9922  # 종로 좌표 (폴백용)
     
-    matched_station = subway_final_df[subway_final_df['name'] == station]
-    if not matched_station.empty:
-        s_lat = float(matched_station.iloc[0]['lat'])
-        s_lon = float(matched_station.iloc[0]['lon'])
-    elif station in BACKUP_STATIONS:
-        s_lat, s_lon = BACKUP_STATIONS[station]
-        
-    min_dist = 9999
-    for z_name, (z_lat, z_lon, api_key) in WEATHER_ZONES.items():
-        dist = get_distance_km(s_lat, s_lon, z_lat, z_lon)
-        if dist < min_dist:
-            min_dist = dist
-            target_zone = api_key
+    # 💡 1. 엑셀에 좌표가 빵꾸나서 NaN일 경우를 대비해 예외 처리(try-except)로 안전장치 추가
+    try:
+        matched_station = subway_final_df[subway_final_df['name'] == station]
+        if not matched_station.empty:
+            temp_lat = float(matched_station.iloc[0]['lat'])
+            temp_lon = float(matched_station.iloc[0]['lon'])
+            if not math.isnan(temp_lat) and not math.isnan(temp_lon):
+                s_lat, s_lon = temp_lat, temp_lon
+        elif station in BACKUP_STATIONS:
+            s_lat, s_lon = BACKUP_STATIONS[station]
+            
+        min_dist = 9999
+        for z_name, (z_lat, z_lon, api_key) in WEATHER_ZONES.items():
+            dist = get_distance_km(s_lat, s_lon, z_lat, z_lon)
+            if dist < min_dist:
+                min_dist = dist
+                target_zone = api_key
+    except Exception as e:
+        # 좌표가 이상해서 터지면 무조건 기본값(종로)으로 안전하게 렌더링
+        target_zone = '종로·청계 관광특구'
 
     try:
-        res = requests.get(f"http://openapi.seoul.go.kr:8088/5067595245766f6938336d4a525772/json/citydata/1/1/{target_zone}", timeout=3)
+        res = requests.get(f"http://openapi.seoul.go.kr:8088/5067595245766f6938336d4a525772/json/citydata/1/1/{target_zone}", timeout=5)
         if res.status_code == 200:
             data = res.json()
             if "CITYDATA" in data:
@@ -238,6 +237,11 @@ def get_weather(station: str):
                 
                 weather_time = w_info.get("WEATHER_TIME", "")
                 
+                pm10_status = w_info.get("PM10_INDEX", "보통")
+                pm10_value = w_info.get("PM10", "-")
+                pm25_status = w_info.get("PM25_INDEX", "보통")
+                pm25_value = w_info.get("PM25", "-")
+                
                 return {
                     "success": True, 
                     "zone": station, 
@@ -245,8 +249,10 @@ def get_weather(station: str):
                     "update_time": weather_time,
                     "temp": str(w_info.get("TEMP", "-")).replace("℃", ""), 
                     "condition": curr_cond,
-                    "pm10": w_info.get("PM10_STTS", "보통"), 
-                    "pm25": w_info.get("PM25_STTS", "보통"), 
+                    "pm10_text": pm10_status,
+                    "pm10_val": pm10_value,
+                    "pm25_text": pm25_status, 
+                    "pm25_val": pm25_value,
                     "msg": w_info.get("WEATHER_MSG", "기상 분석 완료."), 
                     "forecast": city_data.get("WEATHER_FCST", [])[:12]
                 }
@@ -273,7 +279,6 @@ def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: s
             cat = str(row['category'])
             p_val = int(row['price'])
             
-            # 💡 [요청 반영] 마커 가격에 '약' 텍스트 추가
             p_str = f"약 {p_val:,}원"
             if cat in ['문화시설', '명소', '지하철역']: p_str = "변동(+@)"
             elif cat == '공원': p_str = "무료"
@@ -310,9 +315,7 @@ class RouteRequest(BaseModel):
 def calculate_route(req: RouteRequest):
     try:
         is_free_course = (req.pref == "무료 코스 (0원 갓성비)")
-        
-        if is_free_course:
-            req.budget = 0
+        if is_free_course: req.budget = 0
 
         def get_filtered(df):
             if df is None or df.empty: return pd.DataFrame()
@@ -330,7 +333,6 @@ def calculate_route(req: RouteRequest):
         
         if not r_df.empty and not c_df.empty and not is_free_course:
             valid_pairs = []
-            
             if req.pref == "랜덤으로 추천받기":
                 sub_r = r_df.sample(frac=1) 
                 sub_c = c_df.sample(frac=1)
@@ -375,21 +377,17 @@ def calculate_route(req: RouteRequest):
             if req.pref == "가까운 코스 우선": return df_s.iloc[0]
             else: return df_s.iloc[random.randint(0, min(5, len(df_s)-1))]
 
-        # 💡 [요청 반영] 무료 코스 시 명소(거리) 최우선 매칭, 없으면 문화시설 대체
         sel_t = pick_item(t_df)
-        
         if is_free_course:
-            # 명소가 선택되었으면 문화시설 패스, 명소가 비었을 때만 문화시설 선택
             sel_ct = None if sel_t is not None else pick_item(ct_df)
         else:
             sel_ct = pick_item(ct_df) 
             
         sel_p = pick_item(p_df)
-        
         has_plus_alpha = True if (sel_t is not None or sel_ct is not None) else False
 
         steps_data = [{"name": req.start_name, "lat": req.start_lat, "lon": req.start_lon, "color": "#000000"}]
-        steps = [f"<b style='color:#A3A8B4;'>1.</b> 출발: {req.start_name}"]
+        steps = [f"<b style='color:#FF0000;'>1.</b> 출발: {req.start_name}"]
         total_price = 0
         step_idx = 2
 
@@ -397,7 +395,6 @@ def calculate_route(req: RouteRequest):
             nonlocal step_idx, total_price
             steps_data.append({"name": str(row['name']), "lat": float(row['lat']), "lon": float(row['lon']), "color": color})
             
-            # 💡 [요청 반영] 코스 결과창 내역에도 '약' 추가
             if price_type == "fixed":
                 p = int(row['price'])
                 total_price += p
@@ -456,3 +453,7 @@ def calculate_route(req: RouteRequest):
     except Exception as e:
         traceback.print_exc()
         return {"success": False, "reason": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
