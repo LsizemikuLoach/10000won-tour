@@ -192,7 +192,6 @@
         .weather-detail-box .w-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .weather-detail-box .w-temp-large { font-size: 24px; font-weight: 900; color: #111 !important; }
         .weather-detail-box .w-icon-box { font-size: 24px; }
-        /* 💡 미세먼지 라벨이 길어져도 깔끔하게 보이도록 글자 크기와 너비 조정 */
         .dust-badge { font-size: 10px; font-weight: 800; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; white-space: nowrap; }
         .weather-detail-box .w-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin-bottom: 4px; color: #444 !important;}
         .weather-detail-box .w-small-time { font-size: 9px; color: #888 !important; margin-top: 6px; text-align: right; }
@@ -312,8 +311,6 @@
             <label><input type="checkbox" id="chk-cafe" checked onchange="updateMapData()"> 카페</label>
             <label><input type="checkbox" id="chk-park" checked onchange="updateMapData()"> 공원</label>
             <label><input type="checkbox" id="chk-center" checked onchange="updateMapData()"> 문화 시설</label>
-            <label><input type="checkbox" id="chk-tour" checked onchange="updateMapData()"> 지역 명소</label>
-            
             <span class="section-title">2. 기준 지하철 역</span>
             <div class="custom-select-wrapper">
                 <input type="text" id="stationInput" class="form-input" placeholder="역 이름 검색 (예: 홍대입구역)" autocomplete="off">
@@ -370,7 +367,6 @@
             const m = now.getMinutes();
             const time = h + m / 60; 
 
-            // 시계 업데이트
             const timeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
             document.getElementById('live-clock').innerText = "현재 시간 " + timeStr;
             document.getElementById('live-clock-m').innerText = "현재 시간 " + timeStr;
@@ -396,6 +392,15 @@
 
         updateDynamicPillTheme();
         setInterval(updateDynamicPillTheme, 60000);
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.custom-select-wrapper')) {
+                const sl = document.getElementById('stationList');
+                const sp = document.getElementById('startPointList');
+                if(sl) sl.style.display = 'none';
+                if(sp) sp.style.display = 'none';
+            }
+        });
 
         function switchSidebarTab(tabId) {
             document.querySelectorAll('.panel-content').forEach(content => content.classList.remove('active'));
@@ -562,7 +567,10 @@
         }
 
         function setupCustomSelect(inputId, listId, dataArray, onSelectCallback) {
-            const input = document.getElementById(inputId); const list = document.getElementById(listId); const btnId = inputId === 'stationInput' ? 'stationClear' : 'startClear';
+            const input = document.getElementById(inputId); 
+            const list = document.getElementById(listId); 
+            const btnId = inputId === 'stationInput' ? 'stationClear' : 'startClear';
+            
             function renderList(filterText = "") {
                 list.innerHTML = "";
                 if(inputId === 'startPointInput') {
@@ -578,8 +586,24 @@
                     list.appendChild(li);
                 });
             }
-            input.addEventListener("focus", () => { renderList(input.value); list.style.display = "block"; toggleClearBtn(inputId, btnId); });
-            input.addEventListener("input", (e) => { renderList(e.target.value); list.style.display = "block"; toggleClearBtn(inputId, btnId); });
+            
+            input.addEventListener("focus", () => { 
+                document.querySelectorAll('.custom-options').forEach(el => el.style.display = 'none');
+                renderList(input.value); 
+                list.style.display = "block"; 
+                toggleClearBtn(inputId, btnId); 
+            });
+            input.addEventListener("click", () => { 
+                document.querySelectorAll('.custom-options').forEach(el => el.style.display = 'none');
+                renderList(input.value); 
+                list.style.display = "block"; 
+                toggleClearBtn(inputId, btnId); 
+            });
+            input.addEventListener("input", (e) => { 
+                renderList(e.target.value); 
+                list.style.display = "block"; 
+                toggleClearBtn(inputId, btnId); 
+            });
         }
 
         async function loadHotspots() {
@@ -677,8 +701,8 @@
             return "#888";
         }
 
-        // 💡 [해결 1] 날씨 화석 버그 해결 (API 호출 전 화면 싹 비우기)
         async function fetchWeather(stationName) {
+            // 💡 [해결 1] 역을 바꾸는 즉시 화면의 기존 날씨 데이터를 싹 비우고 로딩 상태로 변경 (화석 버그 해결)
             document.getElementById('w-zone-name').innerText = stationName;
             document.getElementById('w-zone-name-m').innerText = stationName;
             
@@ -688,8 +712,13 @@
             
             document.getElementById('pm10-badge').innerText = '조회중';
             document.getElementById('pm10-badge-m').innerText = '조회중';
+            document.getElementById('pm10-badge').style.backgroundColor = '#888';
+            document.getElementById('pm10-badge-m').style.backgroundColor = '#888';
+
             document.getElementById('pm25-badge').innerText = '조회중';
             document.getElementById('pm25-badge-m').innerText = '조회중';
+            document.getElementById('pm25-badge').style.backgroundColor = '#888';
+            document.getElementById('pm25-badge-m').style.backgroundColor = '#888';
             
             document.getElementById('w-small-time').innerText = "↻ 기상청 조회 중...";
             document.getElementById('w-small-time-m').innerText = "↻ 기상청 조회 중...";
@@ -711,7 +740,7 @@
                     document.getElementById('w-icon-box-m').innerHTML = iconHtml;
                     document.getElementById('w-small-icon').innerHTML = iconHtml;
                     
-                    // 💡 [해결 2] 미세먼지 수치 실데이터 증명 적용 (좋음 (15))
+                    // 💡 [해결 2] 괄호 안에 실제 수치값을 같이 띄워서 확실한 데이터임을 증명
                     const pm10Str = `${data.pm10_text} (${data.pm10_val})`;
                     document.getElementById('pm10-badge').innerText = pm10Str;
                     document.getElementById('pm10-badge').style.backgroundColor = getDustColor(data.pm10_text);
@@ -752,13 +781,17 @@
             } else { targetLat = customTarget.lat; targetLon = customTarget.lon; }
 
             const radius = document.getElementById('radiusRange').value;
+            // 💡 [해결] 완전히 삭제된 명소(tourist) 찌꺼기 변수를 체크박스 연동에서 완벽하게 제외했습니다!
             const checks = {
-                rests: document.getElementById('chk-rest').checked, cafes: document.getElementById('chk-cafe').checked,
-                parks: document.getElementById('chk-park').checked, centers: document.getElementById('chk-center').checked, tourists: document.getElementById('chk-tour').checked
+                rests: document.getElementById('chk-rest').checked, 
+                cafes: document.getElementById('chk-cafe').checked,
+                parks: document.getElementById('chk-park').checked, 
+                centers: document.getElementById('chk-center').checked
             };
 
             try {
-                const response = await fetch(`/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}&use_tourists=${checks.tourists}`);
+                // 💡 [해결] 요청 URL에서도 use_tourists 찌꺼기를 삭제하여 에러 없는 완벽한 통신 구현
+                const response = await fetch(`/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}`);
                 const data = await response.json();
                 
                 if(data.success) {
@@ -884,7 +917,10 @@
             async function executeRouteApi(baseData) {
                 const requestData = {
                     ...baseData, budget: parseInt(document.getElementById('budgetRange').value), radius: parseFloat(document.getElementById('radiusRange').value), pref: pref,
-                    use_rests: document.getElementById('chk-rest').checked, use_cafes: document.getElementById('chk-cafe').checked, use_parks: document.getElementById('chk-park').checked, use_centers: document.getElementById('chk-center').checked, use_tourists: document.getElementById('chk-tour').checked
+                    use_rests: document.getElementById('chk-rest').checked, 
+                    use_cafes: document.getElementById('chk-cafe').checked, 
+                    use_parks: document.getElementById('chk-park').checked, 
+                    use_centers: document.getElementById('chk-center').checked
                 };
 
                 try {

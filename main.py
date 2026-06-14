@@ -141,14 +141,10 @@ center_final_df = auto_parse_df(center_df, ['시설', '문화', '체육', '명�
 subway_df = safe_read_csv("seoul_subway.csv")
 subway_final_df = auto_parse_df(subway_df, ['역이름', '역명', '역 이름', '지하철역', '이름'], 0, '지하철역')
 
-tourist_df = safe_read_csv("tourist.csv")
-if tourist_df.empty:
-    tourist_final_df = pd.DataFrame([
-        {"name": "숭례문(남대문)", "lat": 37.5599, "lon": 126.9753, "category": "명소", "price": 0},
-        {"name": "덕수궁", "lat": 37.5658, "lon": 126.9751, "category": "명소", "price": 0}
-    ])
-else:
-    tourist_final_df = auto_parse_df(tourist_df, ['명소', '관광', '명칭', '이름'], 0, '명소')
+# 💡 지역 명소(tourist) 데이터 로딩 부분 완전히 삭제됨
+
+print("데이터 로딩 완료.")
+print("===========================================\n")
 
 @app.get("/logo.png")
 def serve_logo():
@@ -198,9 +194,8 @@ def get_hotspots():
 @app.get("/api/weather")
 def get_weather(station: str):
     target_zone = '종로·청계 관광특구'
-    s_lat, s_lon = 37.5704, 126.9922  # 종로 좌표 (폴백용)
+    s_lat, s_lon = 37.5704, 126.9922
     
-    # 💡 1. 엑셀에 좌표가 빵꾸나서 NaN일 경우를 대비해 예외 처리(try-except)로 안전장치 추가
     try:
         matched_station = subway_final_df[subway_final_df['name'] == station]
         if not matched_station.empty:
@@ -218,7 +213,6 @@ def get_weather(station: str):
                 min_dist = dist
                 target_zone = api_key
     except Exception as e:
-        # 좌표가 이상해서 터지면 무조건 기본값(종로)으로 안전하게 렌더링
         target_zone = '종로·청계 관광특구'
 
     try:
@@ -236,7 +230,6 @@ def get_weather(station: str):
                     curr_cond = pcp_msg
                 
                 weather_time = w_info.get("WEATHER_TIME", "")
-                
                 pm10_status = w_info.get("PM10_INDEX", "보통")
                 pm10_value = w_info.get("PM10", "-")
                 pm25_status = w_info.get("PM25_INDEX", "보통")
@@ -259,8 +252,9 @@ def get_weather(station: str):
     except Exception as e: pass
     return {"success": False, "reason": "서버 통신 대기 중"}
 
+# 💡 [지역 명소 삭제] use_tourists 파라미터 삭제
 @app.get("/api/pois")
-def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: str, use_parks: str, use_centers: str, use_tourists: str):
+def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: str, use_parks: str, use_centers: str):
     results = []
     def filter_and_add(df, color):
         if df is None or df.empty: return
@@ -280,7 +274,7 @@ def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: s
             p_val = int(row['price'])
             
             p_str = f"약 {p_val:,}원"
-            if cat in ['문화시설', '명소', '지하철역']: p_str = "변동(+@)"
+            if cat in ['문화시설', '지하철역']: p_str = "변동(+@)"
             elif cat == '공원': p_str = "무료"
             
             results.append({"name": str(row['name']).replace('"', ''), "lat": float(row['lat']), "lon": float(row['lon']), "category": cat, "price": p_val, "price_str": p_str, "color": str(color)})
@@ -290,7 +284,7 @@ def get_pois(lat: float, lon: float, radius: float, use_rests: str, use_cafes: s
         if use_cafes == 'true': filter_and_add(cafe_final_df, "#8B4513")
         if use_parks == 'true': filter_and_add(park_final_df, "#2E8B57")
         if use_centers == 'true': filter_and_add(center_final_df, "#00CED1") 
-        if use_tourists == 'true': filter_and_add(tourist_final_df, "#FF1493")
+        # 💡 [지역 명소 삭제] 명소 필터 호출부 삭제
         return {"success": True, "data": results}
     except Exception as e:
         return {"success": False, "reason": str(e)}
@@ -309,7 +303,7 @@ class RouteRequest(BaseModel):
     use_cafes: bool = True
     use_parks: bool = True
     use_centers: bool = True
-    use_tourists: bool = True
+    # 💡 [지역 명소 삭제] use_tourists 모델 변수 삭제
 
 @app.post("/api/route")
 def calculate_route(req: RouteRequest):
@@ -327,7 +321,7 @@ def calculate_route(req: RouteRequest):
         c_df = get_filtered(cafe_final_df) if req.use_cafes else pd.DataFrame()
         p_df = get_filtered(park_final_df) if req.use_parks else pd.DataFrame()
         ct_df = get_filtered(center_final_df) if req.use_centers else pd.DataFrame() 
-        t_df = get_filtered(tourist_final_df) if req.use_tourists else pd.DataFrame()
+        # 💡 [지역 명소 삭제] t_df 필터링 삭제
 
         sel_r, sel_c = None, None
         
@@ -377,14 +371,10 @@ def calculate_route(req: RouteRequest):
             if req.pref == "가까운 코스 우선": return df_s.iloc[0]
             else: return df_s.iloc[random.randint(0, min(5, len(df_s)-1))]
 
-        sel_t = pick_item(t_df)
-        if is_free_course:
-            sel_ct = None if sel_t is not None else pick_item(ct_df)
-        else:
-            sel_ct = pick_item(ct_df) 
-            
+        # 💡 [지역 명소 삭제] 명소 아이템 선택 삭제
+        sel_ct = pick_item(ct_df) 
         sel_p = pick_item(p_df)
-        has_plus_alpha = True if (sel_t is not None or sel_ct is not None) else False
+        has_plus_alpha = True if sel_ct is not None else False
 
         steps_data = [{"name": req.start_name, "lat": req.start_lat, "lon": req.start_lon, "color": "#000000"}]
         steps = [f"<b style='color:#FF0000;'>1.</b> 출발: {req.start_name}"]
@@ -405,7 +395,7 @@ def calculate_route(req: RouteRequest):
                 steps.append(f"<b style='color:{color};'>{step_idx}.</b> {label}: {str(row['name'])} (무료)")
             step_idx += 1
 
-        if sel_t is not None: add_step(sel_t, "#FF1493", "명소", "plus")
+        # 💡 [지역 명소 삭제] 명소 스텝 추가 로직 삭제
         if sel_ct is not None: add_step(sel_ct, "#00CED1", "문화시설", "plus") 
         if sel_r is not None: add_step(sel_r, "#FF8C00", "식당", "fixed")
         if sel_p is not None: add_step(sel_p, "#2E8B57", "공원", "free")
