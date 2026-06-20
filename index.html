@@ -608,7 +608,11 @@
 
         async function loadHotspots() {
             try {
-                const response = await fetch(`/api/hotspots?v=${new Date().getTime()}`);
+                // 💡 [패치] 허깅페이스 다이렉트 프록시 주소 바인딩
+                const pathParts = window.location.pathname.split('/').filter(Boolean);
+                const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
+                
+                const response = await fetch(`${apiBase}/api/hotspots?v=${new Date().getTime()}`);
                 globalStations = await response.json();
                 
                 if(globalStations.length > 0) {
@@ -702,7 +706,6 @@
         }
 
         async function fetchWeather(stationName) {
-            // 💡 [해결 1] 역을 바꾸는 즉시 화면의 기존 날씨 데이터를 싹 비우고 로딩 상태로 변경 (화석 버그 해결)
             document.getElementById('w-zone-name').innerText = stationName;
             document.getElementById('w-zone-name-m').innerText = stationName;
             
@@ -724,7 +727,11 @@
             document.getElementById('w-small-time-m').innerText = "↻ 기상청 조회 중...";
 
             try {
-                const response = await fetch(`/api/weather?station=${encodeURIComponent(stationName)}&v=${new Date().getTime()}`);
+                // 💡 [패치] 허깅페이스 다이렉트 프록시 주소 바인딩
+                const pathParts = window.location.pathname.split('/').filter(Boolean);
+                const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
+                
+                const response = await fetch(`${apiBase}/api/weather?station=${encodeURIComponent(stationName)}&v=${new Date().getTime()}`);
                 const data = await response.json();
                 
                 if(data.success) {
@@ -740,7 +747,6 @@
                     document.getElementById('w-icon-box-m').innerHTML = iconHtml;
                     document.getElementById('w-small-icon').innerHTML = iconHtml;
                     
-                    // 💡 [해결 2] 괄호 안에 실제 수치값을 같이 띄워서 확실한 데이터임을 증명
                     const pm10Str = `${data.pm10_text} (${data.pm10_val})`;
                     document.getElementById('pm10-badge').innerText = pm10Str;
                     document.getElementById('pm10-badge').style.backgroundColor = getDustColor(data.pm10_text);
@@ -781,7 +787,6 @@
             } else { targetLat = customTarget.lat; targetLon = customTarget.lon; }
 
             const radius = document.getElementById('radiusRange').value;
-            // 💡 [해결] 완전히 삭제된 명소(tourist) 찌꺼기 변수를 체크박스 연동에서 완벽하게 제외했습니다!
             const checks = {
                 rests: document.getElementById('chk-rest').checked, 
                 cafes: document.getElementById('chk-cafe').checked,
@@ -790,8 +795,11 @@
             };
 
             try {
-                // 💡 [해결] 요청 URL에서도 use_tourists 찌꺼기를 삭제하여 에러 없는 완벽한 통신 구현
-                const response = await fetch(`/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}`);
+                // 💡 [패치] 허깅페이스 다이렉트 프록시 주소 바인딩
+                const pathParts = window.location.pathname.split('/').filter(Boolean);
+                const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
+                
+                const response = await fetch(`${apiBase}/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}`);
                 const data = await response.json();
                 
                 if(data.success) {
@@ -924,7 +932,11 @@
                 };
 
                 try {
-                    const response = await fetch(`/api/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestData) });
+                    // 💡 [패치] 허깅페이스 다이렉트 프록시 주소 바인딩
+                    const pathParts = window.location.pathname.split('/').filter(Boolean);
+                    const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
+                    
+                    const response = await fetch(`${apiBase}/api/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestData) });
                     const data = await response.json();
                     
                     if(data.success) {
