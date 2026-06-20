@@ -12,7 +12,7 @@ import random
 
 app = FastAPI()
 
-# 🚨 [기획자님 전용 디스코드 웹훅 주소 완벽 보존]
+# 🚨 [기획자님 전용 디스코드 웹훅 주소 셋팅 완료]
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1517879102596583454/Tel4tUDcUgNFK6UQtbhxMPqtq4wGTNJ8IEjXXsfD4F1rtTklY3d1Jh8uE3JXB2AeeqHh"
 
 app.add_middleware(
@@ -29,7 +29,6 @@ def safe_read_csv(file_name):
     if not os.path.exists(target_path): 
         return pd.DataFrame()
     
-    # 한국어 공공데이터 인코딩 최우선 처리
     for enc in ['cp949', 'euc-kr', 'utf-8-sig', 'utf-8']:
         try: 
             return pd.read_csv(target_path, encoding=enc)
@@ -84,6 +83,7 @@ def estimate_culture_price(name):
         return 5000
     return 0
 
+# 💡 [핵심] 이상한 이름 뜨던 버그 삭제! 제일 잘 돌아가던 원본 파싱 로직으로 100% 롤백 완료
 def auto_parse_df(df, name_keywords, default_price, category):
     if df.empty: return pd.DataFrame()
     cols = df.columns
@@ -91,7 +91,6 @@ def auto_parse_df(df, name_keywords, default_price, category):
     lon_col = None
     fake_geo_keywords = ['route', 'no', '노선', '번호', '코드', 'id', '상태', '구분', '형태']
     
-    # 1. 위경도 좌표 컬럼 정밀 수색
     for c in cols:
         c_clean = str(c).lower().replace(" ", "").replace("_", "")
         if any(fk in c_clean for fk in fake_geo_keywords): continue
@@ -100,23 +99,32 @@ def auto_parse_df(df, name_keywords, default_price, category):
         if any(k in c_clean for k in ['경도', 'lon', 'lng', 'x좌표', 'fcltylo', 'lc_lo', 'coordx']) or c_clean == 'x':
             if lon_col is None: lon_col = c
 
-    # 2. 💡 [끝판왕 패치] 각 카테고리별 원본 CSV 파일의 찐 한글 컬럼명 100% 강제 고정 타격
     n_col = None
-    for k in name_keywords:
+    fake_name_keywords = ['주소', 'adr', '상태', 'state', '코드', 'code', '번호', 'no', 'id', 'route', '노선', '구분', '유형', '카테고리']
+    
+    for k in name_keywords + ['poi_nm', 'bhf_nm', 'nm', 'title']:
         for c in cols:
-            if str(c).strip() == k: # 정확히 일치하는 컬럼 우선 매칭
+            if c == lat_col or c == lon_col: continue
+            if pd.api.types.is_numeric_dtype(df[c]): continue 
+            c_clean = str(c).lower().replace(" ", "").replace("_", "")
+            if any(fk in c_clean for fk in fake_name_keywords): continue 
+            if k.lower() in c_clean:
                 n_col = c; break
         if n_col: break
-
+        
     if not n_col:
-        for k in name_keywords:
-            for c in cols:
-                if k.lower() in str(c).lower().replace(" ", "").replace("_", ""):
-                    n_col = c; break
-            if n_col: break
-            
-    if not n_col:
-        n_col = cols[0]
+        best_col = None
+        max_unique = 0
+        for c in cols:
+            if c == lat_col or c == lon_col: continue
+            if pd.api.types.is_numeric_dtype(df[c]): continue
+            c_clean = str(c).lower().replace(" ", "").replace("_", "")
+            if any(fk in c_clean for fk in fake_name_keywords): continue
+            num_unique = df[c].nunique()
+            if num_unique > max_unique:
+                max_unique = num_unique
+                best_col = c
+        n_col = best_col if best_col else cols[0]
         
     if lat_col and lon_col and n_col:
         parsed = pd.DataFrame()
@@ -128,7 +136,7 @@ def auto_parse_df(df, name_keywords, default_price, category):
         parsed['category'] = category
         parsed['price'] = default_price
         
-        # 💡 [요청사항] 석촌호수 좌표 강제 고정 (위도 37.511, 경도 127.098)
+        # 💡 [석촌호수 보정만 유지]
         def fix_seokchon_coords(row):
             if "석촌호수" in str(row['name']):
                 row['lat'] = 37.511
@@ -168,40 +176,38 @@ food_list = []
 
 if not noppo_df.empty:
     noppo_df = filter_food_category(noppo_df)
-    t_df = auto_parse_df(noppo_df, ['상호', '업소명', '명칭', '가게명'], 0, '식당')
+    t_df = auto_parse_df(noppo_df, ['상호', '업소', '명칭', '이름', '가게', '점포', 'fclty_nm'], 0, '식당')
     if not t_df.empty:
         t_df['price'] = t_df['name'].apply(estimate_noppo_price)
         food_list.append(t_df)
 
 if not good_price_df.empty:
     good_price_df = filter_food_category(good_price_df)
-    n_df = auto_parse_df(good_price_df, ['상호', '업소명', '명칭', '가게명'], 0, '식당')
+    n_df = auto_parse_df(good_price_df, ['상호', '업소', '명칭', '이름', '가게', '점포'], 0, '식당')
     if not n_df.empty:
         n_df['price'] = n_df['name'].apply(estimate_noppo_price)
         food_list.append(n_df)
 
 restaurant_df = pd.concat(food_list, ignore_index=True).drop_duplicates(subset=['name', 'lat', 'lon']) if food_list else pd.DataFrame()
 
-# 💡 기획자님의 cafe.csv 속 진짜 컬럼명인 '사업장명' 강제 저격 타격!
-cafe_df = safe_read_csv("cafe.csv")
-cafe_final_df = auto_parse_df(cafe_df, ['사업장명', '상호', 'cafe_nm'], 3500, '카페')
+raw_cafe_df = safe_read_csv("cafe_coords.csv")
+if raw_cafe_df.empty: raw_cafe_df = safe_read_csv("cafe.csv")
+cafe_final_df = auto_parse_df(raw_cafe_df, ['상호', '사업장', '업소', '명칭', '이름', 'cafe_nm'], 3500, '카페')
 
-# 💡 기획자님의 park.csv 속 진짜 컬럼명인 '공원명' 강제 저격 타격!
-park_df = safe_read_csv("park.csv")
-park_final_df = auto_parse_df(park_df, ['공원명', '명칭', 'park_nm'], 0, '공원')
+park_final_df = auto_parse_df(safe_read_csv("park.csv"), ['공원', '명칭', '이름', 'park_nm'], 0, '공원')
 
-# 💡 기획자님의 center.csv 속 진짜 컬럼명인 '시설명' 강제 저격 타격!
+# 💡 문화시설을 지하철역으로 오해하던 땜빵 코드 완전히 제거됨!
 center_df = safe_read_csv("center.csv")
-center_final_df = auto_parse_df(center_df, ['시설명', '문화시설명', '체육시설명'], 0, '문화시설')
+center_final_df = auto_parse_df(center_df, ['시설', '문화', '체육', '명칭', '이름', 'TRRSRT_NM'], 0, '문화시설')
 
 if not center_final_df.empty:
     center_final_df['price'] = center_final_df['name'].apply(estimate_culture_price)
 
-# 💡 기획자님의 seoul_subway.csv 속 진짜 컬럼명인 '역명' 또는 '역이름' 강제 저격 타격!
 subway_df = safe_read_csv("seoul_subway.csv")
-subway_final_df = auto_parse_df(subway_df, ['역명', '역이름', 'statn_nm'], 0, '지하철역')
+subway_final_df = auto_parse_df(subway_df, ['역이름', '역명', '역 이름', '지하철역', '이름'], 0, '지하철역')
 
 print("데이터 로딩 완료.")
+print(f"- 확보된 순수 식당 개수: {len(restaurant_df)}개")
 print("===========================================\n")
 
 @app.get("/logo.png")
