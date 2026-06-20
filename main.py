@@ -12,8 +12,7 @@ import random
 
 app = FastAPI()
 
-# 🚨 [디스코드 웹훅 설정] 기획자님의 디스코드 채널 웹훅 주소를 아래 큰따옴표 안에 붙여넣으세요!
-# 예: DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/123456/abcdef"
+# 🚨 [디스코드 웹훅 설정] 주소를 복사해서 아래 큰따옴표 안에 넣어주세요!
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1517879102596583454/Tel4tUDcUgNFK6UQtbhxMPqtq4wGTNJ8IEjXXsfD4F1rtTklY3d1Jh8uE3JXB2AeeqHh"
 
 app.add_middleware(
@@ -30,7 +29,6 @@ def safe_read_csv(file_name):
     if not os.path.exists(target_path): 
         return pd.DataFrame()
     
-    # 💡 [인코딩 치료] 지하철역 공공데이터가 깨지지 않도록 한국어 전용 규격을 최상단 배치
     for enc in ['cp949', 'euc-kr', 'utf-8-sig', 'utf-8']:
         try: 
             return pd.read_csv(target_path, encoding=enc)
@@ -103,16 +101,28 @@ def auto_parse_df(df, name_keywords, default_price, category):
     n_col = None
     fake_name_keywords = ['주소', 'adr', '상태', 'state', '코드', 'code', '번호', 'no', 'id', 'route', '노선', '구분', '유형', '카테고리']
     
-    for k in name_keywords + ['poi_nm', 'bhf_nm', 'nm', 'title']:
+    # 💡 [버그 수정] 카테고리나 메타 정보 컬럼이 상호명으로 잘못 인식되지 않도록 키워드 우선순위 엄격 조정
+    for k in name_keywords:
         for c in cols:
             if c == lat_col or c == lon_col: continue
             if pd.api.types.is_numeric_dtype(df[c]): continue 
             c_clean = str(c).lower().replace(" ", "").replace("_", "")
             if any(fk in c_clean for fk in fake_name_keywords): continue 
-            if k.lower() in c_clean:
+            if k.lower() == c_clean or k.lower() in c_clean:
                 n_col = c; break
         if n_col: break
         
+    if not n_col:
+        for k in ['poi_nm', 'bhf_nm', 'nm', 'title']:
+            for c in cols:
+                if c == lat_col or c == lon_col: continue
+                if pd.api.types.is_numeric_dtype(df[c]): continue 
+                c_clean = str(c).lower().replace(" ", "").replace("_", "")
+                if any(fk in c_clean for fk in fake_name_keywords): continue 
+                if k in c_clean:
+                    n_col = c; break
+            if n_col: break
+
     if not n_col:
         best_col = None
         max_unique = 0
@@ -129,7 +139,7 @@ def auto_parse_df(df, name_keywords, default_price, category):
         
     if lat_col and lon_col and n_col:
         parsed = pd.DataFrame()
-        parsed['name'] = df[n_col].astype(str).apply(lambda x: "이름 정보 없음" if x.strip() == "" or "nan" in str(x).lower() else x)
+        parsed['name'] = df[n_col].astype(str).apply(lambda x: "정보 없음" if x.strip() == "" or "nan" in str(x).lower() else x)
         if category == '지하철역':
             parsed['name'] = parsed['name'].apply(lambda x: x + '역' if not str(x).endswith('역') else x)
         parsed['lat'] = pd.to_numeric(df[lat_col], errors='coerce')
@@ -137,6 +147,14 @@ def auto_parse_df(df, name_keywords, default_price, category):
         parsed['category'] = category
         parsed['price'] = default_price
         
+        # 💡 [요청 사항 반영] 석촌호수 데이터 강제 튜닝 및 위치 교정 보정본 생성
+        def fix_seokchon_coords(row):
+            if "석촌호수" in str(row['name']):
+                row['lat'] = 37.511
+                row['lon'] = 127.098
+            return row
+            
+        parsed = parsed.apply(fix_seokchon_coords, axis=1)
         parsed = parsed.dropna(subset=['lat', 'lon', 'name'])
         parsed = parsed[(parsed['lat'] > 33) & (parsed['lat'] < 39) & (parsed['lon'] > 124) & (parsed['lon'] < 132)]
         return parsed.drop_duplicates(subset=['name', 'lat', 'lon']) 
@@ -169,14 +187,14 @@ food_list = []
 
 if not noppo_df.empty:
     noppo_df = filter_food_category(noppo_df)
-    t_df = auto_parse_df(noppo_df, ['상호', '업소', '명칭', '이름', '가게', '점포', 'fclty_nm'], 0, '식당')
+    t_df = auto_parse_df(noppo_df, ['상호', '업소명', '명칭', '이름', '가게명', '점포명'], 0, '식당')
     if not t_df.empty:
         t_df['price'] = t_df['name'].apply(estimate_noppo_price)
         food_list.append(t_df)
 
 if not good_price_df.empty:
     good_price_df = filter_food_category(good_price_df)
-    n_df = auto_parse_df(good_price_df, ['상호', '업소', '명칭', '이름', '가게', '점포'], 0, '식당')
+    n_df = auto_parse_df(good_price_df, ['상호', '업소명', '명칭', '이름', '가게명', '점포명'], 0, '식당')
     if not n_df.empty:
         n_df['price'] = n_df['name'].apply(estimate_noppo_price)
         food_list.append(n_df)
@@ -185,18 +203,17 @@ restaurant_df = pd.concat(food_list, ignore_index=True).drop_duplicates(subset=[
 
 raw_cafe_df = safe_read_csv("cafe_coords.csv")
 if raw_cafe_df.empty: raw_cafe_df = safe_read_csv("cafe.csv")
-cafe_final_df = auto_parse_df(raw_cafe_df, ['상호', '사업장', '업소', '명칭', '이름', 'cafe_nm'], 3500, '카페')
+cafe_final_df = auto_parse_df(raw_cafe_df, ['상호', '사업장명', '업소명', '명칭', '이름', 'cafe_nm'], 3500, '카페')
 
-park_final_df = auto_parse_df(safe_read_csv("park.csv"), ['공원', '명칭', '이름', 'park_nm'], 0, '공원')
+park_final_df = auto_parse_df(safe_read_csv("park.csv"), ['공원명', '명칭', '이름', 'park_nm'], 0, '공원')
 
 center_df = safe_read_csv("center.csv")
 if center_df.empty: center_df = safe_read_csv("subway.csv")
-center_final_df = auto_parse_df(center_df, ['시설', '문화', '체육', '명칭', '이름', 'TRRSRT_NM'], 0, '문화시설')
+center_final_df = auto_parse_df(center_df, ['시설명', '문화시설', '체육시설', '명칭', '이름', 'TRRSRT_NM'], 0, '문화시설')
 
 if not center_final_df.empty:
     center_final_df['price'] = center_final_df['name'].apply(estimate_culture_price)
 
-# 💡 기획자님의 seoul_subway.csv 와 100% 정상 연동 완료!
 subway_df = safe_read_csv("seoul_subway.csv")
 subway_final_df = auto_parse_df(subway_df, ['역이름', '역명', '역 이름', '지하철역', '이름'], 0, '지하철역')
 
@@ -479,7 +496,6 @@ def calculate_route(req: RouteRequest):
         traceback.print_exc()
         return {"success": False, "reason": str(e)}
 
-# 💡 [신고 기능 디스코드 전송 엔진]
 class ReportRequest(BaseModel):
     place_name: str
     reason: str
@@ -501,7 +517,6 @@ def receive_report(report: ReportRequest):
             "content": f"**[🚨 만원 한 바퀴 실시간 신고 알림]**\n- **장소명**: {report.place_name}\n- **신고사유**: {selected_reason}\n- **접수시간**: {now}"
         }
         
-        # 주소가 제대로 붙여넣어졌다면 실시간 디스코드 알림 발송!
         if DISCORD_WEBHOOK_URL and "webhooks" in DISCORD_WEBHOOK_URL:
             requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=3)
             
