@@ -12,7 +12,7 @@ import random
 
 app = FastAPI()
 
-# 🚨 [디스코드 웹훅 주소 셋팅 유지]
+# 🚨 [기획자님 전용 디스코드 웹훅 주소 완벽 보존]
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1517879102596583454/Tel4tUDcUgNFK6UQtbhxMPqtq4wGTNJ8IEjXXsfD4F1rtTklY3d1Jh8uE3JXB2AeeqHh"
 
 app.add_middleware(
@@ -91,6 +91,7 @@ def auto_parse_df(df, name_keywords, default_price, category):
     lon_col = None
     fake_geo_keywords = ['route', 'no', '노선', '번호', '코드', 'id', '상태', '구분', '형태']
     
+    # 1. 위경도 좌표 컬럼 정밀 수색
     for c in cols:
         c_clean = str(c).lower().replace(" ", "").replace("_", "")
         if any(fk in c_clean for fk in fake_geo_keywords): continue
@@ -99,34 +100,23 @@ def auto_parse_df(df, name_keywords, default_price, category):
         if any(k in c_clean for k in ['경도', 'lon', 'lng', 'x좌표', 'fcltylo', 'lc_lo', 'coordx']) or c_clean == 'x':
             if lon_col is None: lon_col = c
 
+    # 2. 💡 [끝판왕 패치] 각 카테고리별 원본 CSV 파일의 찐 한글 컬럼명 100% 강제 고정 타격
     n_col = None
-    fake_name_keywords = ['주소', 'adr', '상태', 'state', '코드', 'code', '번호', 'no', 'id', 'route', '노선', '구분', '유형', '카테고리']
-    
-    # 💡 [핵심 버그 수정] 상호명/장소명 타겟팅을 가장 엄격하게 수정
-    search_keywords = name_keywords + ['사업장명', '공원명', '시설명', '상호', '업소명', '명칭', '이름', 'poi_nm', 'statn_nm', 'nm']
-    for k in search_keywords:
+    for k in name_keywords:
         for c in cols:
-            if c == lat_col or c == lon_col: continue
-            if pd.api.types.is_numeric_dtype(df[c]): continue 
-            c_clean = str(c).lower().replace(" ", "").replace("_", "")
-            if any(fk in c_clean for fk in fake_name_keywords): continue 
-            if k.lower() == c_clean or k.lower() in c_clean:
+            if str(c).strip() == k: # 정확히 일치하는 컬럼 우선 매칭
                 n_col = c; break
         if n_col: break
 
     if not n_col:
-        best_col = None
-        max_unique = 0
-        for c in cols:
-            if c == lat_col or c == lon_col: continue
-            if pd.api.types.is_numeric_dtype(df[c]): continue
-            c_clean = str(c).lower().replace(" ", "").replace("_", "")
-            if any(fk in c_clean for fk in fake_name_keywords): continue
-            num_unique = df[c].nunique()
-            if num_unique > max_unique:
-                max_unique = num_unique
-                best_col = c
-        n_col = best_col if best_col else cols[0]
+        for k in name_keywords:
+            for c in cols:
+                if k.lower() in str(c).lower().replace(" ", "").replace("_", ""):
+                    n_col = c; break
+            if n_col: break
+            
+    if not n_col:
+        n_col = cols[0]
         
     if lat_col and lon_col and n_col:
         parsed = pd.DataFrame()
@@ -138,7 +128,7 @@ def auto_parse_df(df, name_keywords, default_price, category):
         parsed['category'] = category
         parsed['price'] = default_price
         
-        # 💡 [요청사항] 석촌호수 위치 정확히 고정 (37.511, 127.098)
+        # 💡 [요청사항] 석촌호수 좌표 강제 고정 (위도 37.511, 경도 127.098)
         def fix_seokchon_coords(row):
             if "석촌호수" in str(row['name']):
                 row['lat'] = 37.511
@@ -172,7 +162,6 @@ print("\n===========================================")
 print("=== 만원 한 바퀴 데이터 로드 시스템 구동 ===")
 print("===========================================")
 
-# 💡 [버그 완전 박멸] 땜빵 코드를 다 지우고, 오직 기획자님의 CSV 파일만 정직하게 읽어오도록 수정!!
 noppo_df = safe_read_csv("noppo_coords.csv")
 good_price_df = safe_read_csv("good_price_coords.csv")
 food_list = []
@@ -193,26 +182,24 @@ if not good_price_df.empty:
 
 restaurant_df = pd.concat(food_list, ignore_index=True).drop_duplicates(subset=['name', 'lat', 'lon']) if food_list else pd.DataFrame()
 
-# 카페 데이터는 무조건 cafe.csv 에서 로드
+# 💡 기획자님의 cafe.csv 속 진짜 컬럼명인 '사업장명' 강제 저격 타격!
 cafe_df = safe_read_csv("cafe.csv")
-if cafe_df.empty: cafe_df = safe_read_csv("cafe_coords.csv")
-cafe_final_df = auto_parse_df(cafe_df, ['사업장명', '상호', '업소명', '카페명'], 3500, '카페')
+cafe_final_df = auto_parse_df(cafe_df, ['사업장명', '상호', 'cafe_nm'], 3500, '카페')
 
-# 공원 데이터는 무조건 park.csv 에서 로드
+# 💡 기획자님의 park.csv 속 진짜 컬럼명인 '공원명' 강제 저격 타격!
 park_df = safe_read_csv("park.csv")
-park_final_df = auto_parse_df(park_df, ['공원명', '명칭', '이름'], 0, '공원')
+park_final_df = auto_parse_df(park_df, ['공원명', '명칭', 'park_nm'], 0, '공원')
 
-# 문화시설 데이터는 무조건 center.csv 에서 로드 (지하철역 대체 버그 삭제!)
+# 💡 기획자님의 center.csv 속 진짜 컬럼명인 '시설명' 강제 저격 타격!
 center_df = safe_read_csv("center.csv")
-center_final_df = auto_parse_df(center_df, ['시설명', '문화시설', '명칭'], 0, '문화시설')
+center_final_df = auto_parse_df(center_df, ['시설명', '문화시설명', '체육시설명'], 0, '문화시설')
 
 if not center_final_df.empty:
     center_final_df['price'] = center_final_df['name'].apply(estimate_culture_price)
 
-# 지하철역 데이터는 무조건 seoul_subway.csv 또는 subway.csv 에서 로드
+# 💡 기획자님의 seoul_subway.csv 속 진짜 컬럼명인 '역명' 또는 '역이름' 강제 저격 타격!
 subway_df = safe_read_csv("seoul_subway.csv")
-if subway_df.empty: subway_df = safe_read_csv("subway.csv")
-subway_final_df = auto_parse_df(subway_df, ['역이름', '역명', '지하철역'], 0, '지하철역')
+subway_final_df = auto_parse_df(subway_df, ['역명', '역이름', 'statn_nm'], 0, '지하철역')
 
 print("데이터 로딩 완료.")
 print("===========================================\n")
@@ -500,10 +487,10 @@ class ReportRequest(BaseModel):
 def receive_report(report: ReportRequest):
     try:
         reason_map = {
-            "price": "무료 아님 / 예상보다 훨씬 비쌈",
-            "closed": "폐업했거나 이전함",
-            "location": "지도 위치가 잘못됨",
-            "other": "기타 정보 오류"
+            "price": "💰 무료 아님 / 예상보다 훨씬 비쌈",
+            "closed": "❌ 폐업했거나 이전함",
+            "location": "📍 지도 위치가 잘못됨",
+            "other": "📝 기타 정보 오류"
         }
         selected_reason = reason_map.get(report.reason, report.reason)
 
