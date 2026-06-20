@@ -504,10 +504,10 @@ class ReportRequest(BaseModel):
 def receive_report(report: ReportRequest):
     try:
         reason_map = {
-            "price": "무료 아님 / 예상보다 훨씬 비쌈",
-            "closed": "폐업했거나 이전함",
-            "location": "지도 위치가 잘못됨",
-            "other": "기타 정보 오류"
+            "price": "💰 무료 아님 / 예상보다 훨씬 비쌈",
+            "closed": "❌ 폐업했거나 이전함",
+            "location": "📍 지도 위치가 잘못됨",
+            "other": "📝 기타 정보 오류"
         }
         selected_reason = reason_map.get(report.reason, report.reason)
 
