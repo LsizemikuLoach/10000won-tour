@@ -162,9 +162,15 @@ print(f" -> 지하철역 데이터 로드 완료: {len(subway_final_df)}개")
 
 print("===========================================\n")
 
+# 💡 [로고 다중화 패치] 루트 폴더나 data 폴더 아무 데나 올라와 있어도 무조건 서칭 지원
 @app.get("/logo.png")
 def serve_logo():
-    if os.path.exists(os.path.join(BASE_DIR, "logo.png")): return FileResponse(os.path.join(BASE_DIR, "logo.png"))
+    paths = [
+        os.path.join(BASE_DIR, "logo.png"),
+        os.path.join(BASE_DIR, "data", "logo.png")
+    ]
+    for p in paths:
+        if os.path.exists(p): return FileResponse(p)
     return HTMLResponse(status_code=404)
 
 @app.get("/")
@@ -175,7 +181,6 @@ def serve_html():
     return HTMLResponse(content="<h1>index.html 누락</h1>")
 
 BACKUP_STATIONS = { '강남역': (37.4979, 127.0276), '홍대입구역': (37.5567, 126.9235), '잠실역': (37.5133, 127.1001), '여의도역': (37.5216, 126.9242) }
-# 💡 여의도역 튜플 언팩 에러 완벽 방충 패치 완료
 WEATHER_ZONES = {
     '강남역': (37.4979, 127.0276, '강남역'), '홍대입구역': (37.5567, 126.9235, '홍대 관광특구'),
     '잠실역': (37.5133, 127.1001, '잠실 관광특구'), '여의도역': (37.5216, 126.9242, '여의도'),
@@ -214,15 +219,11 @@ def get_weather(station: str):
             if "CITYDATA" in data and "WEATHER_STTS" in data["CITYDATA"]:
                 w_info = data["CITYDATA"]["WEATHER_STTS"][0]
                 sky_stts = w_info.get("SKY_STTS", "맑음")
-                precpt_type = w_info.get("PRECPT_TYPE", "없음") # 공식 강수 코드 추출
+                precpt_type = w_info.get("PRECPT_TYPE", "없음")
                 
-                # 💡 강수 형태 코드를 최우선으로 매칭하여 글자 파싱 오류 원천 박멸
-                if precpt_type in ["비", "소나기"]:
-                    curr_cond = "비"
-                elif precpt_type in ["눈", "진눈깨비"]:
-                    curr_cond = "눈"
-                else:
-                    curr_cond = sky_stts # 강수 형태가 없으면 하늘 상태(맑음, 구름많음, 흐림)를 그대로 추종
+                if precpt_type in ["비", "소나기"]: curr_cond = "비"
+                elif precpt_type in ["눈", "진눈깨비"]: curr_cond = "눈"
+                else: curr_cond = sky_stts
 
                 return {
                     "success": True, "zone": station, "api_zone": target_zone,
@@ -353,8 +354,7 @@ def calculate_route(req: RouteRequest):
                 if d < min_dist: min_dist = d; best_station_name = s_row['name']; best_station_lat = s_row['lat']; best_station_lon = s_row['lon']
 
         steps_data.append({"name": best_station_name, "lat": best_station_lat, "lon": best_station_lon, "color": "#4682B4"})
-        if best_station_name != req.station:
-            steps.append(f"<b style='color:#4682B4;'>{block_idx}.</b> 귀가: {best_station_name} (현 위치에서 최단거리)")
+        if best_station_name != req.station: steps.append(f"<b style='color:#4682B4;'>{block_idx}.</b> 귀가: {best_station_name} (현 위치에서 최단거리)")
         else: steps.append(f"<b style='color:#4682B4;'>{block_idx}.</b> 귀가: {best_station_name}")
 
         if len(steps_data) > 1: steps_data[0]["color"] = steps_data[1]["color"]
@@ -382,8 +382,7 @@ def calculate_route(req: RouteRequest):
         return {"success": False, "reason": str(e)}
 
 class ReportRequest(BaseModel):
-    place_name: str
-    reason: str
+    place_name: str; reason: str
 
 router = APIRouter()
 
@@ -391,25 +390,13 @@ router = APIRouter()
 @router.post("/report/")
 def receive_report(report: ReportRequest):
     try:
-        reason_map = {
-            "price": "💰 무료 아님 / 예상보다 훨씬 비쌈",
-            "closed": "❌ 폐업했거나 이전함",
-            "location": "📍 지도 위치가 잘못됨",
-            "other": "📝 기타 정보 오류"
-        }
+        reason_map = {"price": "💰 무료 아님 / 예상보다 훨씬 비쌈", "closed": "❌ 폐업했거나 이전함", "location": "📍 지도 위치가 잘못됨", "other": "📝 기타 정보 오류"}
         selected_reason = reason_map.get(report.reason, report.reason)
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        payload = {
-            "content": f"**[🚨 만원 한 바퀴 실시간 신고 알림]**\n- **장소명**: {report.place_name}\n- **신고사유**: {selected_reason}\n- **접수시간**: {now}"
-        }
-        
-        if DISCORD_WEBHOOK_URL and "webhooks" in DISCORD_WEBHOOK_URL:
-            requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=3)
-            
+        payload = {"content": f"**[🚨 만원 한 바퀴 실시간 신고 알림]**\n- **장소명**: {report.place_name}\n- **신고사유**: {selected_reason}\n- **접수시간**: {now}"}
+        if DISCORD_WEBHOOK_URL and "webhooks" in DISCORD_WEBHOOK_URL: requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=3)
         return {"success": True, "msg": "신고가 정상적으로 접수되었습니다."}
-    except Exception as e:
-        return {"success": False, "reason": str(e)}
+    except Exception as e: return {"success": False, "reason": str(e)}
 
 app.include_router(router, prefix="/api")
 
