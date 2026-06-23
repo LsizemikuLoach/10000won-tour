@@ -1084,6 +1084,45 @@
                 closeReportModal();
             }
         }
+
+                // 💡 내 위치 버튼을 작동하게 만드는 GPS 추적 함수 추가
+        function moveToMyLocation() {
+            if (!navigator.geolocation) {
+                alert("이 브라우저에서는 위치 정보(GPS)를 지원하지 않습니다.");
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    
+                    // 지도 중심을 내 GPS 위치로 이동
+                    map.setView([lat, lon], 15);
+                    
+                    // 기존 내 위치 마커가 있으면 지우고 새로 생성
+                    if (window.myLocationMarker) {
+                        map.removeLayer(window.myLocationMarker);
+                    }
+                    
+                    window.myLocationMarker = L.circleMarker([lat, lon], {
+                        radius: 8,
+                        fillColor: "#0054FF",
+                        color: "#FFFFFF",
+                        weight: 2,
+                        fillOpacity: 1.0
+                    }).bindTooltip("<b>현재 내 위치</b>", { permanent: true, direction: "top", offset: [0, -10] }).addTo(map);
+                    
+                    // 입력창 텍스트를 변경하고, 내 위치 기준으로 주변 맛집/카페(POI) 갱신
+                    document.getElementById('stationInput').value = "현재 내 위치";
+                    updateMapData({ lat: lat, lon: lon });
+                },
+                (err) => {
+                    alert("GPS 권한을 허용해 주시거나 위치 설정을 확인해 주세요!");
+                },
+                { enableHighAccuracy: true }
+            );
+        }
     </script>
 </body>
 </html>
