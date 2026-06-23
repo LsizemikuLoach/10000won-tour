@@ -233,7 +233,6 @@
                 animation: fadeInDown 0.15s ease-out; 
             }
         }
-        /* 🚨 신고 모달창 스타일 */
         .report-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 3000; justify-content: center; align-items: center; }
         .report-modal { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; width: 85%; max-width: 320px; padding: 20px; color: var(--panel-text); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         .report-modal h3 { margin-top: 0; color: var(--title-color); font-size: 16px; margin-bottom: 15px; text-align: center; }
@@ -332,10 +331,11 @@
             </div>
             
             <span class="section-title" style="margin-top:0;">1. 인프라 카테고리 필터</span>
-            <label><input type="checkbox" id="chk-rest" checked onchange="updateMapData()"> 식당/밥집</label>
+            <label><input type="checkbox" id="chk-rest" checked onchange="updateMapData()"> 식당(착한가격업소)</label>
             <label><input type="checkbox" id="chk-cafe" checked onchange="updateMapData()"> 카페</label>
             <label><input type="checkbox" id="chk-park" checked onchange="updateMapData()"> 공원</label>
             <label><input type="checkbox" id="chk-center" checked onchange="updateMapData()"> 문화 시설</label>
+            <label><input type="checkbox" id="use_burgers" checked onchange="updateMapData()"> 프랜차이즈 햄버거집</label>
             
             <span class="section-title">2. 기준 지하철 역</span>
             <div class="custom-select-wrapper">
@@ -811,9 +811,11 @@
             } else { targetLat = customTarget.lat; targetLon = customTarget.lon; }
 
             const radius = document.getElementById('radiusRange').value;
+            // 💡 햄버거집 필터(use_burgers) 데이터 연동망 수립 완료
             const checks = {
                 rests: document.getElementById('chk-rest').checked, 
                 cafes: document.getElementById('chk-cafe').checked,
+                burgers: document.getElementById('use_burgers').checked,
                 parks: document.getElementById('chk-park').checked, 
                 centers: document.getElementById('chk-center').checked
             };
@@ -822,7 +824,8 @@
                 const pathParts = window.location.pathname.split('/').filter(Boolean);
                 const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
                 
-                const response = await fetch(`${apiBase}/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_parks=${checks.parks}&use_centers=${checks.centers}`);
+                // 💡 백엔드 전송 API 파라미터에 &use_burgers 수동 융합 성공
+                const response = await fetch(`${apiBase}/api/pois?lat=${targetLat}&lon=${targetLon}&radius=${radius}&use_rests=${checks.rests}&use_cafes=${checks.cafes}&use_burgers=${checks.burgers}&use_parks=${checks.parks}&use_centers=${checks.centers}`);
                 const data = await response.json();
                 
                 if(data.success) {
@@ -836,7 +839,6 @@
                         if (getDistanceKm(targetLat, targetLon, s.lat, s.lon) <= parseFloat(radius)) {
                             const safeName = s.name.replace(/'/g, "\\'");
                             
-                            // 💡 팝업 안에 들어가는 오류 신고 버튼 (사이드바에서 제거하고 제자리 찾아옴)
                             const popupHtml = `
                                 <div class="poi-popup-info">
                                     <b style="color: var(--title-color);">${s.name}</b>
@@ -862,7 +864,6 @@
                         
                         const safeName = poi.name.replace(/'/g, "\\'");
                         
-                        // 💡 식당, 카페 등 장소 마커에도 팝업 추가
                         const popupHtml = `
                             <div class="poi-popup-info">
                                 <b style="color: var(--title-color);">${poi.name}</b>
@@ -960,10 +961,12 @@
             executeRouteApi({ station: endStationName, station_lat: endStationLat, station_lon: endStationLon, start_name: startName, start_lat: startLat, start_lon: startLon });
 
             async function executeRouteApi(baseData) {
+                // 💡 최단/최장 알고리즘 경로 연동 스키마 데이터 구조체에도 use_burgers 완전 결합
                 const requestData = {
                     ...baseData, budget: parseInt(document.getElementById('budgetRange').value), radius: parseFloat(document.getElementById('radiusRange').value), pref: pref,
                     use_rests: document.getElementById('chk-rest').checked, 
                     use_cafes: document.getElementById('chk-cafe').checked, 
+                    use_burgers: document.getElementById('use_burgers').checked,
                     use_parks: document.getElementById('chk-park').checked, 
                     use_centers: document.getElementById('chk-center').checked
                 };
@@ -1020,6 +1023,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             const sliders = document.querySelectorAll('input[type="range"]');
+            sidebar.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)'; // 초기 삐걱임 방어
             sliders.forEach(slider => {
                 updateSliderFill(slider);
                 slider.addEventListener('input', function() { updateSliderFill(this); });
@@ -1028,7 +1032,6 @@
             loadHotspots();
         });
 
-        // 💡 백엔드 에러 원천 차단! 프론트엔드 전용 알림창 신고 기능
         let currentReportTarget = "";
 
         function openReportModal(placeName) {
@@ -1054,7 +1057,6 @@
             submitBtn.disabled = true;
 
             try {
-                // 💡 버셀/허깅페이스 등 배포 주소를 실시간으로 자동 인식하는 스마트 바인딩
                 const pathParts = window.location.pathname.split('/').filter(Boolean);
                 const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
 
@@ -1075,7 +1077,6 @@
                     alert('신고 접수 실패: ' + data.reason);
                 }
             } catch (error) {
-                // 💡 [컴퓨터 바탕화면 더블클릭 우회망] 로컬 테스트 환경이거나 통신이 막혀도 팅기지 않고 정상 처리 유도
                 alert('[' + currentReportTarget + '] 제보가 성공적으로 우회 접수되었습니다!\n(로컬 환경 안내: 디스코드 봇 실전 전송은 Vercel 배포 완료 후 연동되어 작동합니다.)');
             } finally {
                 submitBtn.innerText = "신고하기";
