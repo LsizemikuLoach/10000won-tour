@@ -15,7 +15,7 @@ import datetime
 app = FastAPI()
 
 # 🚨 [디스코드 웹훅 주소 유지]
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1517879102596583454/Tel4tUDcUgNFK6UQtbhxMPqtq4wGTNJ8IEjXXsfD4F1rtTklY3d1Jh8uE3JXB2AeeqHh"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1519282864905261071/sHNkExKdY90eYrnWFX9Q-uj6nQVTi7Lo3nNjfIo67jDkTfxK_QDYUiTfUB2km9SEyAVM"
 
 app.add_middleware(
     CORSMiddleware,
