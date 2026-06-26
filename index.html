@@ -1060,7 +1060,7 @@
                 const pathParts = window.location.pathname.split('/').filter(Boolean);
                 const apiBase = (pathParts.length >= 3 && pathParts[0] === 'spaces') ? `https://${pathParts[1]}-${pathParts[2]}.hf.space` : window.location.origin;
 
-                const response = await fetch(`${apiBase}/api/report`, {
+                const response = await fetch('/api/report', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -1077,7 +1077,7 @@
                     alert('신고 접수 실패: ' + data.reason);
                 }
             } catch (error) {
-                alert('[' + currentReportTarget + '] 제보가 성공적으로 우회 접수되었습니다!\n(로컬 환경 안내: 디스코드 봇 실전 전송은 Vercel 배포 완료 후 연동되어 작동합니다.)');
+                alert('진짜 에러 원인: ' + error.message); // 가짜 메시지 대신 진짜 에러를 띄웁니다!
             } finally {
                 submitBtn.innerText = "신고하기";
                 submitBtn.disabled = false;

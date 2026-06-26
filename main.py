@@ -12,10 +12,14 @@ import random
 import urllib.parse
 import datetime
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 app = FastAPI()
 
 # 🚨 [디스코드 웹훅 주소 유지]
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1519282864905261071/sHNkExKdY90eYrnWFX9Q-uj6nQVTi7Lo3nNjfIo67jDkTfxK_QDYUiTfUB2km9SEyAVM"
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 app.add_middleware(
     CORSMiddleware,
